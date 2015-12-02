@@ -814,6 +814,9 @@ static void mac80211_hwsim_monitor_rx(struct ieee80211_hw *hw,
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(tx_skb);
 	struct ieee80211_rate *txrate = ieee80211_get_tx_rate(hw, info);
 
+	if (WARN_ON(!txrate))
+		return;
+
 	if (!netif_running(hwsim_mon))
 		return;
 
@@ -2876,10 +2879,25 @@ static int hwsim_cloned_frame_received_nl(struct sk_buff *skb_2,
 
 	/* A frame is received from user space */
 	memset(&rx_status, 0, sizeof(rx_status));
-	/* TODO: Check ATTR_FREQ if it exists, and maybe throw away off-channel
-	 * packets?
-	 */
-	rx_status.freq = data2->channel->center_freq;
+	if (info->attrs[HWSIM_ATTR_FREQ]) {
+		/* throw away off-channel packets, but allow both the temporary
+		 * ("hw" scan/remain-on-channel) and regular channel, since the
+		 * internal datapath also allows this
+		 */
+		mutex_lock(&data2->mutex);
+		rx_status.freq = nla_get_u32(info->attrs[HWSIM_ATTR_FREQ]);
+
+		if (rx_status.freq != data2->channel->center_freq &&
+		    data2->tmp_chan &&
+		    rx_status.freq != data2->tmp_chan->center_freq) {
+			mutex_unlock(&data2->mutex);
+			goto out;
+		}
+		mutex_unlock(&data2->mutex);
+	} else {
+		rx_status.freq = data2->channel->center_freq;
+	}
+
 	rx_status.band = data2->channel->band;
 	rx_status.rate_idx = nla_get_u32(info->attrs[HWSIM_ATTR_RX_RATE]);
 	rx_status.signal = nla_get_u32(info->attrs[HWSIM_ATTR_SIGNAL]);
