@@ -2614,6 +2614,9 @@ int _hwrm_send_message(struct bnxt *bp, void *msg, u32 msg_len, int timeout)
 	/* Write request msg to hwrm channel */
 	__iowrite32_copy(bp->bar0, data, msg_len / 4);
 
+	for (i = msg_len; i < HWRM_MAX_REQ_LEN; i += 4)
+		writel(0, bp->bar0 + i);
+
 	/* currently supports only one outstanding message */
 	if (intr_process)
 		bp->hwrm_intr_seq_id = le32_to_cpu(req->target_id_seq_id) &
@@ -5708,21 +5711,23 @@ static void _bnxt_get_max_rings(struct bnxt *bp, int *max_rx, int *max_tx,
 {
 	int max_ring_grps = 0;
 
-	if (BNXT_PF(bp)) {
-		*max_tx = bp->pf.max_tx_rings;
-		*max_rx = bp->pf.max_rx_rings;
-		*max_cp = min_t(int, bp->pf.max_irqs, bp->pf.max_cp_rings);
-		*max_cp = min_t(int, *max_cp, bp->pf.max_stat_ctxs);
-		max_ring_grps = bp->pf.max_hw_ring_grps;
-	} else {
 #ifdef CONFIG_BNXT_SRIOV
+	if (!BNXT_PF(bp)) {
 		*max_tx = bp->vf.max_tx_rings;
 		*max_rx = bp->vf.max_rx_rings;
 		*max_cp = min_t(int, bp->vf.max_irqs, bp->vf.max_cp_rings);
 		*max_cp = min_t(int, *max_cp, bp->vf.max_stat_ctxs);
 		max_ring_grps = bp->vf.max_hw_ring_grps;
+	} else
 #endif
+	{
+		*max_tx = bp->pf.max_tx_rings;
+		*max_rx = bp->pf.max_rx_rings;
+		*max_cp = min_t(int, bp->pf.max_irqs, bp->pf.max_cp_rings);
+		*max_cp = min_t(int, *max_cp, bp->pf.max_stat_ctxs);
+		max_ring_grps = bp->pf.max_hw_ring_grps;
 	}
+
 	if (bp->flags & BNXT_FLAG_AGG_RINGS)
 		*max_rx >>= 1;
 	*max_rx = min_t(int, *max_rx, max_ring_grps);

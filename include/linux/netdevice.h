@@ -812,6 +812,12 @@ typedef u16 (*select_queue_fallback_t)(struct net_device *dev,
  *        (can also return NETDEV_TX_LOCKED iff NETIF_F_LLTX)
  *	Required can not be NULL.
  *
+ * netdev_features_t (*ndo_fix_features)(struct net_device *dev,
+ *		netdev_features_t features);
+ *	Adjusts the requested feature flags according to device-specific
+ *	constraints, and returns the resulting flags. Must not modify
+ *	the device state.
+ *
  * u16 (*ndo_select_queue)(struct net_device *dev, struct sk_buff *skb,
  *                         void *accel_priv, select_queue_fallback_t fallback);
  *	Called to decide which queue to when device supports multiple
@@ -959,12 +965,6 @@ typedef u16 (*select_queue_fallback_t)(struct net_device *dev,
  *	Called to release previously enslaved netdev.
  *
  *      Feature/offload setting functions.
- * netdev_features_t (*ndo_fix_features)(struct net_device *dev,
- *		netdev_features_t features);
- *	Adjusts the requested feature flags according to device-specific
- *	constraints, and returns the resulting flags. Must not modify
- *	the device state.
- *
  * int (*ndo_set_features)(struct net_device *dev, netdev_features_t features);
  *	Called to update device configuration to new features. Passed
  *	feature set might be less than what was returned by ndo_fix_features()).
@@ -1081,8 +1081,11 @@ struct net_device_ops {
 	void			(*ndo_uninit)(struct net_device *dev);
 	int			(*ndo_open)(struct net_device *dev);
 	int			(*ndo_stop)(struct net_device *dev);
-	netdev_tx_t		(*ndo_start_xmit) (struct sk_buff *skb,
-						   struct net_device *dev);
+	netdev_tx_t		(*ndo_start_xmit)(struct sk_buff *skb,
+						  struct net_device *dev);
+	netdev_features_t	(*ndo_features_check)(struct sk_buff *skb,
+						      struct net_device *dev,
+						      netdev_features_t features);
 	u16			(*ndo_select_queue)(struct net_device *dev,
 						    struct sk_buff *skb,
 						    void *accel_priv,
@@ -1245,9 +1248,6 @@ struct net_device_ops {
 							struct net_device *dev,
 							void *priv);
 	int			(*ndo_get_lock_subclass)(struct net_device *dev);
-	netdev_features_t	(*ndo_features_check) (struct sk_buff *skb,
-						       struct net_device *dev,
-						       netdev_features_t features);
 	int			(*ndo_set_tx_maxrate)(struct net_device *dev,
 						      int queue_index,
 						      u32 maxrate);
@@ -1739,7 +1739,9 @@ struct net_device {
 #ifdef CONFIG_XPS
 	struct xps_dev_maps __rcu *xps_maps;
 #endif
-
+#ifdef CONFIG_NET_CLS_ACT
+	struct tcf_proto __rcu  *egress_cl_list;
+#endif
 #ifdef CONFIG_NET_SWITCHDEV
 	u32			offload_fwd_mark;
 #endif
@@ -3871,9 +3873,9 @@ static inline netdev_features_t netdev_intersect_features(netdev_features_t f1,
 {
 	if ((f1 ^ f2) & NETIF_F_HW_CSUM) {
 		if (f1 & NETIF_F_HW_CSUM)
-			f1 |= (NETIF_F_IP_CSUM|NETIF_F_IP_CSUM);
+			f1 |= (NETIF_F_IP_CSUM|NETIF_F_IPV6_CSUM);
 		else
-			f2 |= (NETIF_F_IP_CSUM|NETIF_F_IP_CSUM);
+			f2 |= (NETIF_F_IP_CSUM|NETIF_F_IPV6_CSUM);
 	}
 
 	return f1 & f2;

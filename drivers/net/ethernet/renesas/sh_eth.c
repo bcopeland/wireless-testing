@@ -1240,7 +1240,6 @@ static int sh_eth_dev_init(struct net_device *ndev, bool start)
 {
 	int ret = 0;
 	struct sh_eth_private *mdp = netdev_priv(ndev);
-	u32 val;
 
 	/* Soft Reset */
 	ret = sh_eth_reset(ndev);
@@ -1293,10 +1292,8 @@ static int sh_eth_dev_init(struct net_device *ndev, bool start)
 	}
 
 	/* PAUSE Prohibition */
-	val = (sh_eth_read(ndev, ECMR) & ECMR_DM) |
-		ECMR_ZPF | (mdp->duplex ? ECMR_DM : 0) | ECMR_TE | ECMR_RE;
-
-	sh_eth_write(ndev, val, ECMR);
+	sh_eth_write(ndev, ECMR_ZPF | (mdp->duplex ? ECMR_DM : 0) |
+		     ECMR_TE | ECMR_RE, ECMR);
 
 	if (mdp->cd->set_rate)
 		mdp->cd->set_rate(ndev);
@@ -1826,8 +1823,7 @@ static int sh_eth_phy_init(struct net_device *ndev)
 		return PTR_ERR(phydev);
 	}
 
-	netdev_info(ndev, "attached PHY %d (IRQ %d) to driver %s\n",
-		    phydev->addr, phydev->irq, phydev->drv->name);
+	phy_attached_info(phydev);
 
 	mdp->phydev = phydev;
 
@@ -2860,7 +2856,7 @@ static int sh_mdio_release(struct sh_eth_private *mdp)
 static int sh_mdio_init(struct sh_eth_private *mdp,
 			struct sh_eth_plat_data *pd)
 {
-	int ret, i;
+	int ret;
 	struct bb_info *bitbang;
 	struct platform_device *pdev = mdp->pdev;
 	struct device *dev = &mdp->pdev->dev;
@@ -2886,20 +2882,10 @@ static int sh_mdio_init(struct sh_eth_private *mdp,
 	snprintf(mdp->mii_bus->id, MII_BUS_ID_SIZE, "%s-%x",
 		 pdev->name, pdev->id);
 
-	/* PHY IRQ */
-	mdp->mii_bus->irq = devm_kmalloc_array(dev, PHY_MAX_ADDR, sizeof(int),
-					       GFP_KERNEL);
-	if (!mdp->mii_bus->irq) {
-		ret = -ENOMEM;
-		goto out_free_bus;
-	}
-
 	/* register MDIO bus */
 	if (dev->of_node) {
 		ret = of_mdiobus_register(mdp->mii_bus, dev->of_node);
 	} else {
-		for (i = 0; i < PHY_MAX_ADDR; i++)
-			mdp->mii_bus->irq[i] = PHY_POLL;
 		if (pd->phy_irq > 0)
 			mdp->mii_bus->irq[pd->phy] = pd->phy_irq;
 

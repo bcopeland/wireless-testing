@@ -1370,6 +1370,11 @@ static int mlxsw_sp_port_create(struct mlxsw_sp *mlxsw_sp, u8 local_port)
 		err = -ENOMEM;
 		goto err_port_active_vlans_alloc;
 	}
+	mlxsw_sp_port->untagged_vlans = kzalloc(bytes, GFP_KERNEL);
+	if (!mlxsw_sp_port->untagged_vlans) {
+		err = -ENOMEM;
+		goto err_port_untagged_vlans_alloc;
+	}
 	INIT_LIST_HEAD(&mlxsw_sp_port->vports_list);
 
 	mlxsw_sp_port->pcpu_stats =
@@ -1472,6 +1477,8 @@ err_port_module_check:
 err_dev_addr_init:
 	free_percpu(mlxsw_sp_port->pcpu_stats);
 err_alloc_stats:
+	kfree(mlxsw_sp_port->untagged_vlans);
+err_port_untagged_vlans_alloc:
 	kfree(mlxsw_sp_port->active_vlans);
 err_port_active_vlans_alloc:
 	free_netdev(dev);
@@ -1505,6 +1512,7 @@ static void mlxsw_sp_port_remove(struct mlxsw_sp *mlxsw_sp, u8 local_port)
 	mlxsw_sp_port_vports_fini(mlxsw_sp_port);
 	mlxsw_sp_port_switchdev_fini(mlxsw_sp_port);
 	free_percpu(mlxsw_sp_port->pcpu_stats);
+	kfree(mlxsw_sp_port->untagged_vlans);
 	kfree(mlxsw_sp_port->active_vlans);
 	free_netdev(mlxsw_sp_port->dev);
 }
@@ -1850,6 +1858,7 @@ static int mlxsw_sp_init(void *priv, struct mlxsw_core *mlxsw_core,
 	mlxsw_sp->bus_info = mlxsw_bus_info;
 	INIT_LIST_HEAD(&mlxsw_sp->port_vfids.list);
 	INIT_LIST_HEAD(&mlxsw_sp->br_vfids.list);
+	INIT_LIST_HEAD(&mlxsw_sp->br_mids.list);
 
 	err = mlxsw_sp_base_mac_get(mlxsw_sp);
 	if (err) {
@@ -1931,7 +1940,7 @@ static struct mlxsw_config_profile mlxsw_sp_config_profile = {
 	.used_max_port_per_lag		= 1,
 	.max_port_per_lag		= MLXSW_SP_PORT_PER_LAG_MAX,
 	.used_max_mid			= 1,
-	.max_mid			= 7000,
+	.max_mid			= MLXSW_SP_MID_MAX,
 	.used_max_pgt			= 1,
 	.max_pgt			= 0,
 	.used_max_system_port		= 1,
