@@ -1804,6 +1804,9 @@ enum nl80211_commands {
  *	it contains the behaviour-specific attribute containing the parameters for
  *	BSS selection to be done by driver and/or firmware.
  *
+ * @NL80211_ATTR_BEACON_LOSS_DO_NOT_DISCONNECT: If set, the driver should not
+ *	take action (e.g. disconnect) upon beacon loss besides sending an event.
+ *
  * @NUM_NL80211_ATTR: total number of nl80211_attrs available
  * @NL80211_ATTR_MAX: highest attribute number currently defined
  * @__NL80211_ATTR_AFTER_LAST: internal use
@@ -2181,6 +2184,8 @@ enum nl80211_attrs {
 	NL80211_ATTR_PBSS,
 
 	NL80211_ATTR_BSS_SELECT,
+
+	NL80211_ATTR_BEACON_LOSS_DO_NOT_DISCONNECT,
 
 	/* add attributes here, update the policy in nl80211.c */
 
@@ -4419,6 +4424,11 @@ enum nl80211_feature_flags {
  *	%NL80211_CMD_ASSOCIATE and %NL80211_CMD_CONNECT requests, which will set
  *	the ASSOC_REQ_USE_RRM flag in the association request even if
  *	NL80211_FEATURE_QUIET is not advertized.
+ * @NL80211_EXT_FEATURE_BEACON_LOSS_DO_NOT_DISCONNECT: The driver supports
+ *	configuration in which the driver will not disconnect when beacon loss
+ *	is detected but it will only send a beacon loss event.
+ *	%NL80211_ATTR_BEACON_LOSS_DO_NOT_DISCONNECT flag attribute is used to
+ *	enable this configuration.
  *
  * @NUM_NL80211_EXT_FEATURES: number of extended features.
  * @MAX_NL80211_EXT_FEATURES: highest extended feature index.
@@ -4426,6 +4436,7 @@ enum nl80211_feature_flags {
 enum nl80211_ext_feature_index {
 	NL80211_EXT_FEATURE_VHT_IBSS,
 	NL80211_EXT_FEATURE_RRM,
+	NL80211_EXT_FEATURE_BEACON_LOSS_DO_NOT_DISCONNECT,
 
 	/* add new features before the definition below */
 	NUM_NL80211_EXT_FEATURES,
