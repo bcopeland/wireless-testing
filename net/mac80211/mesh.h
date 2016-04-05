@@ -21,8 +21,6 @@
 /**
  * enum mesh_path_flags - mac80211 mesh path flags
  *
- *
- *
  * @MESH_PATH_ACTIVE: the mesh path can be used for forwarding
  * @MESH_PATH_RESOLVING: the discovery process is running for this mesh path
  * @MESH_PATH_SN_VALID: the mesh path contains a valid destination sequence
@@ -32,6 +30,8 @@
  * @MESH_PATH_RESOLVED: the mesh path can has been resolved
  * @MESH_PATH_REQ_QUEUED: there is an unsent path request for this destination
  *	already queued up, waiting for the discovery process to start.
+ * @MESH_PATH_DELETED: the mesh path has been deleted and should no longer
+ *	be used
  *
  * MESH_PATH_RESOLVED is used by the mesh path timer to
  * decide when to stop or cancel the mesh path discovery.
@@ -43,6 +43,7 @@ enum mesh_path_flags {
 	MESH_PATH_FIXED	=	BIT(3),
 	MESH_PATH_RESOLVED =	BIT(4),
 	MESH_PATH_REQ_QUEUED =	BIT(5),
+	MESH_PATH_DELETED =	BIT(6),
 };
 
 /**
@@ -67,12 +68,16 @@ enum mesh_deferred_task_flags {
  * struct mesh_path - mac80211 mesh path structure
  *
  * @dst: mesh path destination mac address
+ * @mpp: mesh proxy mac address
+ * @rhash: rhashtable list pointer
+ * @gate_list: list pointer for known gates list
  * @sdata: mesh subif
  * @next_hop: mesh neighbor to which frames for this destination will be
  *	forwarded
  * @timer: mesh path discovery timer
  * @frame_queue: pending queue for frames sent to this destination while the
  *	path is unresolved
+ * @rcu: rcu head for freeing mesh path
  * @sn: target sequence number
  * @metric: current metric to this destination
  * @hop_count: hops to destination
@@ -91,10 +96,10 @@ enum mesh_deferred_task_flags {
  * @is_gate: the destination station of this path is a mesh gate
  *
  *
- * The combination of dst and sdata is unique in the mesh path table. Since the
- * next_hop STA is only protected by RCU as well, deleting the STA must also
- * remove/substitute the mesh_path structure and wait until that is no longer
- * reachable before destroying the STA completely.
+ * The dst address is unique in the mesh path table. Since the mesh_path is
+ * protected by RCU, deleting the next_hop STA must remove / substitute the
+ * mesh_path structure and wait until that is no longer reachable before
+ * destroying the STA completely.
  */
 struct mesh_path {
 	u8 dst[ETH_ALEN];
@@ -124,17 +129,17 @@ struct mesh_path {
 /**
  * struct mesh_table
  *
- * @entries: number of entries in the table
  * @known_gates: list of known mesh gates and their mpaths by the station. The
  * gate's mpath may or may not be resolved and active.
- * @rhash: the rhashtable containing struct mesh_paths, keyed by dest addr
+ * @gates_lock: protects updates to known_gates
+ * @rhead: the rhashtable containing struct mesh_paths, keyed by dest addr
+ * @entries: number of entries in the table
  */
 struct mesh_table {
-	atomic_t entries;		/* Up to MAX_MESH_NEIGHBOURS */
-	struct hlist_head *known_gates;
+	struct hlist_head known_gates;
 	spinlock_t gates_lock;
-
 	struct rhashtable rhead;
+	atomic_t entries;		/* Up to MAX_MESH_NEIGHBOURS */
 };
 
 /* Recent multicast cache */
@@ -149,20 +154,21 @@ struct mesh_table {
  * @seqnum: mesh sequence number of the frame
  * @exp_time: expiration time of the entry, in jiffies
  * @sa: source address of the frame
+ * @list: hashtable list pointer
  *
  * The Recent Multicast Cache keeps track of the latest multicast frames that
  * have been received by a mesh interface and discards received multicast frames
  * that are found in the cache.
  */
 struct rmc_entry {
-	struct list_head list;
-	u32 seqnum;
+	struct hlist_node list;
 	unsigned long exp_time;
+	u32 seqnum;
 	u8 sa[ETH_ALEN];
 };
 
 struct mesh_rmc {
-	struct list_head bucket[RMC_BUCKETS];
+	struct hlist_head bucket[RMC_BUCKETS];
 	u32 idx_mask;
 };
 
@@ -213,6 +219,7 @@ void ieee80211s_init(void);
 void ieee80211s_update_metric(struct ieee80211_local *local,
 			      struct sta_info *sta, struct sk_buff *skb);
 void ieee80211_mesh_init_sdata(struct ieee80211_sub_if_data *sdata);
+void ieee80211_mesh_teardown_sdata(struct ieee80211_sub_if_data *sdata);
 int ieee80211_start_mesh(struct ieee80211_sub_if_data *sdata);
 void ieee80211_stop_mesh(struct ieee80211_sub_if_data *sdata);
 void ieee80211_mesh_root_setup(struct ieee80211_if_mesh *ifmsh);
