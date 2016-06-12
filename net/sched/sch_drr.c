@@ -91,7 +91,8 @@ static int drr_change_class(struct Qdisc *sch, u32 classid, u32 parentid,
 		if (tca[TCA_RATE]) {
 			err = gen_replace_estimator(&cl->bstats, NULL,
 						    &cl->rate_est,
-						    qdisc_root_sleeping_lock(sch),
+						    NULL,
+						    qdisc_root_sleeping_running(sch),
 						    tca[TCA_RATE]);
 			if (err)
 				return err;
@@ -119,7 +120,8 @@ static int drr_change_class(struct Qdisc *sch, u32 classid, u32 parentid,
 
 	if (tca[TCA_RATE]) {
 		err = gen_replace_estimator(&cl->bstats, NULL, &cl->rate_est,
-					    qdisc_root_sleeping_lock(sch),
+					    NULL,
+					    qdisc_root_sleeping_running(sch),
 					    tca[TCA_RATE]);
 		if (err) {
 			qdisc_destroy(cl->qdisc);
@@ -279,7 +281,8 @@ static int drr_dump_class_stats(struct Qdisc *sch, unsigned long arg,
 	if (qlen)
 		xstats.deficit = cl->deficit;
 
-	if (gnet_stats_copy_basic(d, NULL, &cl->bstats) < 0 ||
+	if (gnet_stats_copy_basic(qdisc_root_sleeping_running(sch),
+				  d, NULL, &cl->bstats) < 0 ||
 	    gnet_stats_copy_rate_est(d, &cl->bstats, &cl->rate_est) < 0 ||
 	    gnet_stats_copy_queue(d, NULL, &cl->qdisc->qstats, qlen) < 0)
 		return -1;
@@ -375,6 +378,7 @@ static int drr_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 		cl->deficit = cl->quantum;
 	}
 
+	qdisc_qstats_backlog_inc(sch, skb);
 	sch->q.qlen++;
 	return err;
 }
@@ -407,6 +411,7 @@ static struct sk_buff *drr_dequeue(struct Qdisc *sch)
 
 			bstats_update(&cl->bstats, skb);
 			qdisc_bstats_update(sch, skb);
+			qdisc_qstats_backlog_dec(sch, skb);
 			sch->q.qlen--;
 			return skb;
 		}
@@ -416,26 +421,6 @@ static struct sk_buff *drr_dequeue(struct Qdisc *sch)
 	}
 out:
 	return NULL;
-}
-
-static unsigned int drr_drop(struct Qdisc *sch)
-{
-	struct drr_sched *q = qdisc_priv(sch);
-	struct drr_class *cl;
-	unsigned int len;
-
-	list_for_each_entry(cl, &q->active, alist) {
-		if (cl->qdisc->ops->drop) {
-			len = cl->qdisc->ops->drop(cl->qdisc);
-			if (len > 0) {
-				sch->q.qlen--;
-				if (cl->qdisc->q.qlen == 0)
-					list_del(&cl->alist);
-				return len;
-			}
-		}
-	}
-	return 0;
 }
 
 static int drr_init_qdisc(struct Qdisc *sch, struct nlattr *opt)
@@ -463,6 +448,7 @@ static void drr_reset_qdisc(struct Qdisc *sch)
 			qdisc_reset(cl->qdisc);
 		}
 	}
+	sch->qstats.backlog = 0;
 	sch->q.qlen = 0;
 }
 
@@ -506,7 +492,6 @@ static struct Qdisc_ops drr_qdisc_ops __read_mostly = {
 	.enqueue	= drr_enqueue,
 	.dequeue	= drr_dequeue,
 	.peek		= qdisc_peek_dequeued,
-	.drop		= drr_drop,
 	.init		= drr_init_qdisc,
 	.reset		= drr_reset_qdisc,
 	.destroy	= drr_destroy_qdisc,

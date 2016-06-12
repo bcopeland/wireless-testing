@@ -87,7 +87,9 @@ static const struct pci_device_id qede_pci_tbl[] = {
 	{PCI_VDEVICE(QLOGIC, PCI_DEVICE_ID_57980S_100), QEDE_PRIVATE_PF},
 	{PCI_VDEVICE(QLOGIC, PCI_DEVICE_ID_57980S_50), QEDE_PRIVATE_PF},
 	{PCI_VDEVICE(QLOGIC, PCI_DEVICE_ID_57980S_25), QEDE_PRIVATE_PF},
+#ifdef CONFIG_QED_SRIOV
 	{PCI_VDEVICE(QLOGIC, PCI_DEVICE_ID_57980S_IOV), QEDE_PRIVATE_VF},
+#endif
 	{ 0 }
 };
 
@@ -2498,6 +2500,10 @@ static int __qede_probe(struct pci_dev *pdev, u32 dp_module, u8 dp_level,
 	edev->ops->common->set_id(cdev, edev->ndev->name, DRV_MODULE_VERSION);
 
 	edev->ops->register_ops(cdev, &qede_ll_ops, edev);
+
+#ifdef CONFIG_DCB
+	qede_set_dcbnl_ops(edev->ndev);
+#endif
 
 	INIT_DELAYED_WORK(&edev->sp_task, qede_sp_task);
 	mutex_init(&edev->qede_lock);
