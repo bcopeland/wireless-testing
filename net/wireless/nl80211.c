@@ -2525,10 +2525,33 @@ static int nl80211_dump_interface(struct sk_buff *skb, struct netlink_callback *
 	int if_idx = 0;
 	int wp_start = cb->args[0];
 	int if_start = cb->args[1];
+	int filter_wiphy = -1;
 	struct cfg80211_registered_device *rdev;
 	struct wireless_dev *wdev;
 
 	rtnl_lock();
+	if (!cb->args[2]) {
+		struct nl80211_dump_wiphy_state state = {};
+		int ret;
+
+		ret = nl80211_dump_wiphy_parse(skb, cb, &state);
+		if (ret)
+			return ret;
+
+		filter_wiphy = state.filter_wiphy;
+
+		/*
+		 * if filtering, set cb->args[2] to +1 since 0 is the default
+		 * value needed to determine that parsing is necessary.
+		 */
+		if (filter_wiphy >= 0)
+			cb->args[2] = filter_wiphy + 1;
+		else
+			cb->args[2] = -1;
+	} else if (cb->args[2] > 0) {
+		filter_wiphy = cb->args[2] - 1;
+	}
+
 	list_for_each_entry(rdev, &cfg80211_rdev_list, list) {
 		if (!net_eq(wiphy_net(&rdev->wiphy), sock_net(skb->sk)))
 			continue;
@@ -2536,6 +2559,10 @@ static int nl80211_dump_interface(struct sk_buff *skb, struct netlink_callback *
 			wp_idx++;
 			continue;
 		}
+
+		if (filter_wiphy >= 0 && filter_wiphy != rdev->wiphy_idx)
+			continue;
+
 		if_idx = 0;
 
 		list_for_each_entry(wdev, &rdev->wiphy.wdev_list, list) {
@@ -2751,7 +2778,7 @@ static int nl80211_new_interface(struct sk_buff *skb, struct genl_info *info)
 	struct cfg80211_registered_device *rdev = info->user_ptr[0];
 	struct vif_params params;
 	struct wireless_dev *wdev;
-	struct sk_buff *msg, *event;
+	struct sk_buff *msg;
 	int err;
 	enum nl80211_iftype type = NL80211_IFTYPE_UNSPECIFIED;
 	u32 flags;
@@ -2855,20 +2882,15 @@ static int nl80211_new_interface(struct sk_buff *skb, struct genl_info *info)
 		return -ENOBUFS;
 	}
 
-	event = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
-	if (event) {
-		if (nl80211_send_iface(event, 0, 0, 0,
-				       rdev, wdev, false) < 0) {
-			nlmsg_free(event);
-			goto out;
-		}
+	/*
+	 * For wdevs which have no associated netdev object (e.g. of type
+	 * NL80211_IFTYPE_P2P_DEVICE), emit the NEW_INTERFACE event here.
+	 * For all other types, the event will be generated from the
+	 * netdev notifier
+	 */
+	if (!wdev->netdev)
+		nl80211_notify_iface(rdev, wdev, NL80211_CMD_NEW_INTERFACE);
 
-		genlmsg_multicast_netns(&nl80211_fam, wiphy_net(&rdev->wiphy),
-					event, 0, NL80211_MCGRP_CONFIG,
-					GFP_KERNEL);
-	}
-
-out:
 	return genlmsg_reply(msg, info);
 }
 
@@ -2876,17 +2898,9 @@ static int nl80211_del_interface(struct sk_buff *skb, struct genl_info *info)
 {
 	struct cfg80211_registered_device *rdev = info->user_ptr[0];
 	struct wireless_dev *wdev = info->user_ptr[1];
-	struct sk_buff *msg;
-	int status;
 
 	if (!rdev->ops->del_virtual_intf)
 		return -EOPNOTSUPP;
-
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
-	if (msg && nl80211_send_iface(msg, 0, 0, 0, rdev, wdev, true) < 0) {
-		nlmsg_free(msg);
-		msg = NULL;
-	}
 
 	/*
 	 * If we remove a wireless device without a netdev then clear
@@ -2898,15 +2912,7 @@ static int nl80211_del_interface(struct sk_buff *skb, struct genl_info *info)
 	if (!wdev->netdev)
 		info->user_ptr[1] = NULL;
 
-	status = rdev_del_virtual_intf(rdev, wdev);
-	if (status >= 0 && msg)
-		genlmsg_multicast_netns(&nl80211_fam, wiphy_net(&rdev->wiphy),
-					msg, 0, NL80211_MCGRP_CONFIG,
-					GFP_KERNEL);
-	else
-		nlmsg_free(msg);
-
-	return status;
+	return rdev_del_virtual_intf(rdev, wdev);
 }
 
 static int nl80211_set_noack_map(struct sk_buff *skb, struct genl_info *info)
@@ -5374,6 +5380,18 @@ static int nl80211_check_s32(const struct nlattr *nla, s32 min, s32 max, s32 *ou
 	return 0;
 }
 
+static int nl80211_check_power_mode(const struct nlattr *nla,
+				    enum nl80211_mesh_power_mode min,
+				    enum nl80211_mesh_power_mode max,
+				    enum nl80211_mesh_power_mode *out)
+{
+	u32 val = nla_get_u32(nla);
+	if (val < min || val > max)
+		return -EINVAL;
+	*out = val;
+	return 0;
+}
+
 static int nl80211_parse_mesh_config(struct genl_info *info,
 				     struct mesh_config *cfg,
 				     u32 *mask_out)
@@ -5518,7 +5536,7 @@ do {									    \
 				  NL80211_MESH_POWER_ACTIVE,
 				  NL80211_MESH_POWER_MAX,
 				  mask, NL80211_MESHCONF_POWER_MODE,
-				  nl80211_check_u32);
+				  nl80211_check_power_mode);
 	FILL_IN_MESH_PARAM_IF_SET(tb, cfg, dot11MeshAwakeWindowDuration,
 				  0, 65535, mask,
 				  NL80211_MESHCONF_AWAKE_WINDOW, nl80211_check_u16);
@@ -7773,12 +7791,13 @@ static int nl80211_join_ibss(struct sk_buff *skb, struct genl_info *info)
 
 	ibss.beacon_interval = 100;
 
-	if (info->attrs[NL80211_ATTR_BEACON_INTERVAL]) {
+	if (info->attrs[NL80211_ATTR_BEACON_INTERVAL])
 		ibss.beacon_interval =
 			nla_get_u32(info->attrs[NL80211_ATTR_BEACON_INTERVAL]);
-		if (ibss.beacon_interval < 1 || ibss.beacon_interval > 10000)
-			return -EINVAL;
-	}
+
+	err = cfg80211_validate_beacon_int(rdev, ibss.beacon_interval);
+	if (err)
+		return err;
 
 	if (!rdev->ops->join_ibss)
 		return -EOPNOTSUPP;
@@ -9252,9 +9271,10 @@ static int nl80211_join_mesh(struct sk_buff *skb, struct genl_info *info)
 	if (info->attrs[NL80211_ATTR_BEACON_INTERVAL]) {
 		setup.beacon_interval =
 			nla_get_u32(info->attrs[NL80211_ATTR_BEACON_INTERVAL]);
-		if (setup.beacon_interval < 10 ||
-		    setup.beacon_interval > 10000)
-			return -EINVAL;
+
+		err = cfg80211_validate_beacon_int(rdev, setup.beacon_interval);
+		if (err)
+			return err;
 	}
 
 	if (info->attrs[NL80211_ATTR_DTIM_PERIOD]) {
@@ -11839,6 +11859,29 @@ void nl80211_notify_wiphy(struct cfg80211_registered_device *rdev,
 		return;
 
 	if (nl80211_send_wiphy(rdev, cmd, msg, 0, 0, 0, &state) < 0) {
+		nlmsg_free(msg);
+		return;
+	}
+
+	genlmsg_multicast_netns(&nl80211_fam, wiphy_net(&rdev->wiphy), msg, 0,
+				NL80211_MCGRP_CONFIG, GFP_KERNEL);
+}
+
+void nl80211_notify_iface(struct cfg80211_registered_device *rdev,
+				struct wireless_dev *wdev,
+				enum nl80211_commands cmd)
+{
+	struct sk_buff *msg;
+
+	WARN_ON(cmd != NL80211_CMD_NEW_INTERFACE &&
+		cmd != NL80211_CMD_DEL_INTERFACE);
+
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	if (!msg)
+		return;
+
+	if (nl80211_send_iface(msg, 0, 0, 0, rdev, wdev,
+			       cmd == NL80211_CMD_DEL_INTERFACE) < 0) {
 		nlmsg_free(msg);
 		return;
 	}
