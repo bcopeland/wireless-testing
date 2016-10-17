@@ -11,6 +11,8 @@
 
 #include <linux/crypto.h>
 
+#define CMAC_AAD_LEN 20
+
 struct crypto_cipher *ieee80211_aes_cmac_key_setup(const u8 key[],
 						   size_t key_len);
 void ieee80211_aes_cmac(struct crypto_cipher *tfm, const u8 *aad,
