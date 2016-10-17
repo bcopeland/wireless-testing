@@ -25,16 +25,15 @@ int ieee80211_aes_gmac(struct crypto_aead *tfm, const u8 *aad, u8 *nonce,
 		       const u8 *data, size_t data_len, u8 *mic)
 {
 	struct scatterlist sg[4];
-	char aead_req_data[sizeof(struct aead_request) +
-			   crypto_aead_reqsize(tfm)]
-		__aligned(__alignof__(struct aead_request));
-	struct aead_request *aead_req = (void *)aead_req_data;
 	u8 zero[GMAC_MIC_LEN], iv[AES_BLOCK_SIZE];
+	struct aead_request *aead_req;
 
 	if (data_len < GMAC_MIC_LEN)
 		return -EINVAL;
 
-	memset(aead_req, 0, sizeof(aead_req_data));
+	aead_req = aead_request_alloc(tfm, GFP_ATOMIC);
+	if (!aead_req)
+		return -ENOMEM;
 
 	memset(zero, 0, GMAC_MIC_LEN);
 	sg_init_table(sg, 4);
@@ -47,11 +46,11 @@ int ieee80211_aes_gmac(struct crypto_aead *tfm, const u8 *aad, u8 *nonce,
 	memset(iv + GMAC_NONCE_LEN, 0, sizeof(iv) - GMAC_NONCE_LEN);
 	iv[AES_BLOCK_SIZE - 1] = 0x01;
 
-	aead_request_set_tfm(aead_req, tfm);
 	aead_request_set_crypt(aead_req, sg, sg, 0, iv);
 	aead_request_set_ad(aead_req, AAD_LEN + data_len);
 
 	crypto_aead_encrypt(aead_req);
+	aead_request_free(aead_req);
 
 	return 0;
 }
