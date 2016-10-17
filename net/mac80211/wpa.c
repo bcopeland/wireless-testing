@@ -405,8 +405,6 @@ static int ccmp_encrypt_skb(struct ieee80211_tx_data *tx, struct sk_buff *skb,
 	u8 *pos;
 	u8 pn[6];
 	u64 pn64;
-	u8 aad[2 * AES_BLOCK_SIZE];
-	u8 b_0[AES_BLOCK_SIZE];
 
 	if (info->control.hw_key &&
 	    !(info->control.hw_key->flags & IEEE80211_KEY_FLAG_GENERATE_IV) &&
@@ -456,13 +454,32 @@ static int ccmp_encrypt_skb(struct ieee80211_tx_data *tx, struct sk_buff *skb,
 	ccmp_pn2hdr(pos, pn, key->conf.keyidx);
 
 	/* hwaccel - with software CCMP header */
-	if (info->control.hw_key)
-		return 0;
+	if (unlikely(!info->control.hw_key)) {
+		struct ieee80211_crypto_bufs *bufs;
+		int err;
+		u8 *aad;
+		u8 *b_0;
 
-	pos += IEEE80211_CCMP_HDR_LEN;
-	ccmp_special_blocks(skb, pn, b_0, aad);
-	ieee80211_aes_ccm_encrypt(key->u.ccmp.tfm, b_0, aad, pos, len,
-				  skb_put(skb, mic_len), mic_len);
+		bufs = kmem_cache_alloc(ieee80211_crypto_bufs_cache,
+					GFP_ATOMIC);
+		if (!bufs)
+			return -ENOMEM;
+
+		BUILD_BUG_ON(sizeof(bufs->buf1) < 2 * AES_BLOCK_SIZE);
+		BUILD_BUG_ON(sizeof(bufs->buf2) < AES_BLOCK_SIZE);
+
+		aad = bufs->buf1;
+		b_0 = bufs->buf2;
+
+		pos += IEEE80211_CCMP_HDR_LEN;
+		ccmp_special_blocks(skb, pn, b_0, aad);
+		err = ieee80211_aes_ccm_encrypt(key->u.ccmp.tfm, b_0, aad,
+						pos, len,
+						skb_put(skb, mic_len),
+						mic_len);
+		kmem_cache_free(ieee80211_crypto_bufs_cache, bufs);
+		return err;
+	}
 
 	return 0;
 }
@@ -534,16 +551,33 @@ ieee80211_crypto_ccmp_decrypt(struct ieee80211_rx_data *rx,
 		}
 
 		if (!(status->flag & RX_FLAG_DECRYPTED)) {
-			u8 aad[2 * AES_BLOCK_SIZE];
-			u8 b_0[AES_BLOCK_SIZE];
+			struct ieee80211_crypto_bufs *bufs;
+			int err;
+			u8 *aad;
+			u8 *b_0;
+
+			bufs = kmem_cache_alloc(ieee80211_crypto_bufs_cache,
+						GFP_ATOMIC);
+			if (!bufs)
+				return RX_DROP_UNUSABLE;
+
+			BUILD_BUG_ON(sizeof(bufs->buf1) < 2 * AES_BLOCK_SIZE);
+			BUILD_BUG_ON(sizeof(bufs->buf2) < AES_BLOCK_SIZE);
+
+			aad = bufs->buf1;
+			b_0 = bufs->buf2;
+
 			/* hardware didn't decrypt/verify MIC */
 			ccmp_special_blocks(skb, pn, b_0, aad);
 
-			if (ieee80211_aes_ccm_decrypt(
+			err = ieee80211_aes_ccm_decrypt(
 				    key->u.ccmp.tfm, b_0, aad,
 				    skb->data + hdrlen + IEEE80211_CCMP_HDR_LEN,
 				    data_len,
-				    skb->data + skb->len - mic_len, mic_len))
+				    skb->data + skb->len - mic_len, mic_len);
+			kmem_cache_free(ieee80211_crypto_bufs_cache, bufs);
+
+			if (err)
 				return RX_DROP_UNUSABLE;
 		}
 
@@ -639,8 +673,6 @@ static int gcmp_encrypt_skb(struct ieee80211_tx_data *tx, struct sk_buff *skb)
 	u8 *pos;
 	u8 pn[6];
 	u64 pn64;
-	u8 aad[2 * AES_BLOCK_SIZE];
-	u8 j_0[AES_BLOCK_SIZE];
 
 	if (info->control.hw_key &&
 	    !(info->control.hw_key->flags & IEEE80211_KEY_FLAG_GENERATE_IV) &&
@@ -691,13 +723,32 @@ static int gcmp_encrypt_skb(struct ieee80211_tx_data *tx, struct sk_buff *skb)
 	gcmp_pn2hdr(pos, pn, key->conf.keyidx);
 
 	/* hwaccel - with software GCMP header */
-	if (info->control.hw_key)
-		return 0;
+	if (unlikely(!info->control.hw_key)) {
+		struct ieee80211_crypto_bufs *bufs;
+		int err;
+		u8 *aad;
+		u8 *j_0;
+		u8 *mic = skb_put(skb, IEEE80211_GCMP_MIC_LEN);
 
-	pos += IEEE80211_GCMP_HDR_LEN;
-	gcmp_special_blocks(skb, pn, j_0, aad);
-	ieee80211_aes_gcm_encrypt(key->u.gcmp.tfm, j_0, aad, pos, len,
-				  skb_put(skb, IEEE80211_GCMP_MIC_LEN));
+		bufs = kmem_cache_alloc(ieee80211_crypto_bufs_cache,
+					GFP_ATOMIC);
+		if (!bufs)
+			return -ENOMEM;
+
+		BUILD_BUG_ON(sizeof(bufs->buf1) < 2 * AES_BLOCK_SIZE);
+		BUILD_BUG_ON(sizeof(bufs->buf2) < AES_BLOCK_SIZE);
+
+		aad = bufs->buf1;
+		j_0 = bufs->buf2;
+
+		pos += IEEE80211_GCMP_HDR_LEN;
+		gcmp_special_blocks(skb, pn, j_0, aad);
+		err = ieee80211_aes_gcm_encrypt(key->u.gcmp.tfm, j_0, aad,
+						pos, len, mic);
+		kmem_cache_free(ieee80211_crypto_bufs_cache, bufs);
+
+		return err;
+	}
 
 	return 0;
 }
@@ -764,17 +815,34 @@ ieee80211_crypto_gcmp_decrypt(struct ieee80211_rx_data *rx)
 		}
 
 		if (!(status->flag & RX_FLAG_DECRYPTED)) {
-			u8 aad[2 * AES_BLOCK_SIZE];
-			u8 j_0[AES_BLOCK_SIZE];
+			struct ieee80211_crypto_bufs *bufs;
+			int err;
+			u8 *aad;
+			u8 *j_0;
+
+			bufs = kmem_cache_alloc(ieee80211_crypto_bufs_cache,
+						GFP_ATOMIC);
+			if (!bufs)
+				return RX_DROP_UNUSABLE;
+
+			BUILD_BUG_ON(sizeof(bufs->buf1) < 2 * AES_BLOCK_SIZE);
+			BUILD_BUG_ON(sizeof(bufs->buf2) < AES_BLOCK_SIZE);
+
+			aad = bufs->buf1;
+			j_0 = bufs->buf2;
+
 			/* hardware didn't decrypt/verify MIC */
 			gcmp_special_blocks(skb, pn, j_0, aad);
 
-			if (ieee80211_aes_gcm_decrypt(
+			err = ieee80211_aes_gcm_decrypt(
 				    key->u.gcmp.tfm, j_0, aad,
 				    skb->data + hdrlen + IEEE80211_GCMP_HDR_LEN,
 				    data_len,
 				    skb->data + skb->len -
-				    IEEE80211_GCMP_MIC_LEN))
+				    IEEE80211_GCMP_MIC_LEN);
+			kmem_cache_free(ieee80211_crypto_bufs_cache, bufs);
+
+			if (err)
 				return RX_DROP_UNUSABLE;
 		}
 
@@ -1123,9 +1191,12 @@ ieee80211_crypto_aes_gmac_encrypt(struct ieee80211_tx_data *tx)
 	struct ieee80211_key *key = tx->key;
 	struct ieee80211_mmie_16 *mmie;
 	struct ieee80211_hdr *hdr;
-	u8 aad[20];
 	u64 pn64;
 	u8 nonce[12];
+	struct ieee80211_crypto_bufs *bufs;
+	int err;
+	u8 *aad;
+	u8 *zero;
 
 	if (WARN_ON(skb_queue_len(&tx->skbs) != 1))
 		return TX_DROP;
@@ -1139,6 +1210,16 @@ ieee80211_crypto_aes_gmac_encrypt(struct ieee80211_tx_data *tx)
 
 	if (WARN_ON(skb_tailroom(skb) < sizeof(*mmie)))
 		return TX_DROP;
+
+	bufs = kmem_cache_alloc(ieee80211_crypto_bufs_cache, GFP_ATOMIC);
+	if (!bufs)
+		return TX_DROP;
+
+	BUILD_BUG_ON(sizeof(bufs->buf1) < GMAC_AAD_LEN);
+	BUILD_BUG_ON(sizeof(bufs->buf2) < GMAC_MIC_LEN);
+
+	aad = bufs->buf1;
+	zero = bufs->buf2;
 
 	mmie = (struct ieee80211_mmie_16 *)skb_put(skb, sizeof(*mmie));
 	mmie->element_id = WLAN_EID_MMIE;
@@ -1157,11 +1238,13 @@ ieee80211_crypto_aes_gmac_encrypt(struct ieee80211_tx_data *tx)
 	bip_ipn_swap(nonce + ETH_ALEN, mmie->sequence_number);
 
 	/* MIC = AES-GMAC(IGTK, AAD || Management Frame Body || MMIE, 128) */
-	if (ieee80211_aes_gmac(key->u.aes_gmac.tfm, aad, nonce,
-			       skb->data + 24, skb->len - 24, mmie->mic) < 0)
-		return TX_DROP;
+	err = ieee80211_aes_gmac(key->u.aes_gmac.tfm, aad, nonce,
+				 skb->data + 24, skb->len - 24, mmie->mic,
+				 zero);
 
-	return TX_CONTINUE;
+	kmem_cache_free(ieee80211_crypto_bufs_cache, bufs);
+
+	return err < 0 ? TX_DROP : TX_CONTINUE;
 }
 
 ieee80211_rx_result
@@ -1171,7 +1254,7 @@ ieee80211_crypto_aes_gmac_decrypt(struct ieee80211_rx_data *rx)
 	struct ieee80211_rx_status *status = IEEE80211_SKB_RXCB(skb);
 	struct ieee80211_key *key = rx->key;
 	struct ieee80211_mmie_16 *mmie;
-	u8 aad[20], mic[16], ipn[6], nonce[12];
+	u8 mic[16], ipn[6], nonce[12];
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
 
 	if (!ieee80211_is_mgmt(hdr->frame_control))
@@ -1196,16 +1279,34 @@ ieee80211_crypto_aes_gmac_decrypt(struct ieee80211_rx_data *rx)
 	}
 
 	if (!(status->flag & RX_FLAG_DECRYPTED)) {
+		struct ieee80211_crypto_bufs *bufs;
+		int err;
+		u8 *aad;
+		u8 *zero;
+
+		bufs = kmem_cache_alloc(ieee80211_crypto_bufs_cache,
+					GFP_ATOMIC);
+		if (!bufs)
+			return RX_DROP_UNUSABLE;
+
+		BUILD_BUG_ON(sizeof(bufs->buf1) < GMAC_AAD_LEN);
+		BUILD_BUG_ON(sizeof(bufs->buf2) < GMAC_MIC_LEN);
+
+		aad = bufs->buf1;
+		zero = bufs->buf2;
+
 		/* hardware didn't decrypt/verify MIC */
 		bip_aad(skb, aad);
 
 		memcpy(nonce, hdr->addr2, ETH_ALEN);
 		memcpy(nonce + ETH_ALEN, ipn, 6);
 
-		if (ieee80211_aes_gmac(key->u.aes_gmac.tfm, aad, nonce,
-				       skb->data + 24, skb->len - 24,
-				       mic) < 0 ||
-		    memcmp(mic, mmie->mic, sizeof(mmie->mic)) != 0) {
+		err = ieee80211_aes_gmac(key->u.aes_gmac.tfm, aad, nonce,
+					 skb->data + 24, skb->len - 24,
+					 mic, zero);
+		kmem_cache_free(ieee80211_crypto_bufs_cache, bufs);
+
+		if (err < 0 || memcmp(mic, mmie->mic, sizeof(mmie->mic)) != 0) {
 			key->u.aes_gmac.icverrors++;
 			return RX_DROP_UNUSABLE;
 		}

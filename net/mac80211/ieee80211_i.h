@@ -1128,6 +1128,13 @@ enum mac80211_scan_state {
 	SCAN_ABORT,
 };
 
+struct ieee80211_crypto_bufs {
+	u8 buf1[32];
+	u8 buf2[16];
+} ____cacheline_aligned_in_smp;
+
+extern struct kmem_cache *ieee80211_crypto_bufs_cache;
+
 struct ieee80211_local {
 	/* embed the driver visible part.
 	 * don't cast (use the static inlines below), but we keep

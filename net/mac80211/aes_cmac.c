@@ -20,7 +20,6 @@
 
 #define CMAC_TLEN 8 /* CMAC TLen = 64 bits (8 octets) */
 #define CMAC_TLEN_256 16 /* CMAC TLen = 128 bits (16 octets) */
-#define AAD_LEN 20
 
 
 static void gf_mulx(u8 *pad)
@@ -101,7 +100,7 @@ void ieee80211_aes_cmac(struct crypto_cipher *tfm, const u8 *aad,
 
 	memset(zero, 0, CMAC_TLEN);
 	addr[0] = aad;
-	len[0] = AAD_LEN;
+	len[0] = CMAC_AAD_LEN;
 	addr[1] = data;
 	len[1] = data_len - CMAC_TLEN;
 	addr[2] = zero;
@@ -119,7 +118,7 @@ void ieee80211_aes_cmac_256(struct crypto_cipher *tfm, const u8 *aad,
 
 	memset(zero, 0, CMAC_TLEN_256);
 	addr[0] = aad;
-	len[0] = AAD_LEN;
+	len[0] = CMAC_AAD_LEN;
 	addr[1] = data;
 	len[1] = data_len - CMAC_TLEN_256;
 	addr[2] = zero;

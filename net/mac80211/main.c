@@ -33,6 +33,8 @@
 #include "led.h"
 #include "debugfs.h"
 
+struct kmem_cache *ieee80211_crypto_bufs_cache;
+
 void ieee80211_configure_filter(struct ieee80211_local *local)
 {
 	u64 mc;
@@ -1234,6 +1236,10 @@ static int __init ieee80211_init(void)
 	BUILD_BUG_ON(offsetof(struct ieee80211_tx_info, driver_data) +
 		     IEEE80211_TX_INFO_DRIVER_DATA_SIZE > sizeof(skb->cb));
 
+	ieee80211_crypto_bufs_cache = KMEM_CACHE(ieee80211_crypto_bufs, 0);
+	if (!ieee80211_crypto_bufs_cache)
+		return -ENOMEM;
+
 	ret = rc80211_minstrel_init();
 	if (ret)
 		return ret;
@@ -1263,6 +1269,8 @@ static void __exit ieee80211_exit(void)
 	ieee80211s_stop();
 
 	ieee80211_iface_exit();
+
+	kmem_cache_destroy(ieee80211_crypto_bufs_cache);
 
 	rcu_barrier();
 }
