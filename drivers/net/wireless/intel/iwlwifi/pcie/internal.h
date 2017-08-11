@@ -791,7 +791,7 @@ void iwl_pcie_enable_rx_wake(struct iwl_trans *trans, bool enable);
 void iwl_pcie_apm_config(struct iwl_trans *trans);
 int iwl_pcie_prepare_card_hw(struct iwl_trans *trans);
 void iwl_pcie_synchronize_irqs(struct iwl_trans *trans);
-bool iwl_trans_check_hw_rf_kill(struct iwl_trans *trans);
+bool iwl_pcie_check_hw_rf_kill(struct iwl_trans *trans);
 void iwl_trans_pcie_handle_stop_rfkill(struct iwl_trans *trans,
 				       bool was_in_rfkill);
 void iwl_pcie_txq_free_tfd(struct iwl_trans *trans, struct iwl_txq *txq);
@@ -806,6 +806,8 @@ int iwl_pcie_alloc_dma_ptr(struct iwl_trans *trans,
 			   struct iwl_dma_ptr *ptr, size_t size);
 void iwl_pcie_free_dma_ptr(struct iwl_trans *trans, struct iwl_dma_ptr *ptr);
 void iwl_pcie_apply_destination(struct iwl_trans *trans);
+void iwl_pcie_free_tso_page(struct iwl_trans_pcie *trans_pcie,
+			    struct sk_buff *skb);
 #ifdef CONFIG_INET
 struct iwl_tso_hdr_page *get_page_hdr(struct iwl_trans *trans, size_t len);
 #endif
