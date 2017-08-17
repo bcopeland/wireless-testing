@@ -829,28 +829,6 @@ update_vf(struct hfsc_class *cl, unsigned int len, u64 cur_time)
 	}
 }
 
-static void
-set_active(struct hfsc_class *cl, unsigned int len)
-{
-	if (cl->cl_flags & HFSC_RSC)
-		init_ed(cl, len);
-	if (cl->cl_flags & HFSC_FSC)
-		init_vf(cl, len);
-
-}
-
-static void
-set_passive(struct hfsc_class *cl)
-{
-	if (cl->cl_flags & HFSC_RSC)
-		eltree_remove(cl);
-
-	/*
-	 * vttree is now handled in update_vf() so that update_vf(cl, 0, 0)
-	 * needs to be called explicitly to remove a class from vttree.
-	 */
-}
-
 static unsigned int
 qdisc_peek_len(struct Qdisc *sch)
 {
@@ -1221,10 +1199,12 @@ hfsc_qlen_notify(struct Qdisc *sch, unsigned long arg)
 {
 	struct hfsc_class *cl = (struct hfsc_class *)arg;
 
-	if (cl->qdisc->q.qlen == 0) {
-		update_vf(cl, 0, 0);
-		set_passive(cl);
-	}
+	/* vttree is now handled in update_vf() so that update_vf(cl, 0, 0)
+	 * needs to be called explicitly to remove a class from vttree.
+	 */
+	update_vf(cl, 0, 0);
+	if (cl->cl_flags & HFSC_RSC)
+		eltree_remove(cl);
 }
 
 static unsigned long
@@ -1428,6 +1408,10 @@ hfsc_init_qdisc(struct Qdisc *sch, struct nlattr *opt)
 		return err;
 	q->eligible = RB_ROOT;
 
+	err = tcf_block_get(&q->root.block, &q->root.filter_list);
+	if (err)
+		goto err_tcf;
+
 	q->root.cl_common.classid = sch->handle;
 	q->root.refcnt  = 1;
 	q->root.sched   = q;
@@ -1447,6 +1431,10 @@ hfsc_init_qdisc(struct Qdisc *sch, struct nlattr *opt)
 	qdisc_watchdog_init(&q->watchdog, sch);
 
 	return 0;
+
+err_tcf:
+	qdisc_class_hash_destroy(&q->clhash);
+	return err;
 }
 
 static int
@@ -1522,8 +1510,10 @@ hfsc_destroy_qdisc(struct Qdisc *sch)
 	unsigned int i;
 
 	for (i = 0; i < q->clhash.hashsize; i++) {
-		hlist_for_each_entry(cl, &q->clhash.hash[i], cl_common.hnode)
+		hlist_for_each_entry(cl, &q->clhash.hash[i], cl_common.hnode) {
 			tcf_block_put(cl->block);
+			cl->block = NULL;
+		}
 	}
 	for (i = 0; i < q->clhash.hashsize; i++) {
 		hlist_for_each_entry_safe(cl, next, &q->clhash.hash[i],
@@ -1575,7 +1565,12 @@ hfsc_enqueue(struct sk_buff *skb, struct Qdisc *sch, struct sk_buff **to_free)
 	}
 
 	if (cl->qdisc->q.qlen == 1) {
-		set_active(cl, qdisc_pkt_len(skb));
+		unsigned int len = qdisc_pkt_len(skb);
+
+		if (cl->cl_flags & HFSC_RSC)
+			init_ed(cl, len);
+		if (cl->cl_flags & HFSC_FSC)
+			init_vf(cl, len);
 		/*
 		 * If this is the first packet, isolate the head so an eventual
 		 * head drop before the first dequeue operation has no chance
@@ -1639,18 +1634,18 @@ hfsc_dequeue(struct Qdisc *sch)
 	if (realtime)
 		cl->cl_cumul += qdisc_pkt_len(skb);
 
-	if (cl->qdisc->q.qlen != 0) {
-		if (cl->cl_flags & HFSC_RSC) {
+	if (cl->cl_flags & HFSC_RSC) {
+		if (cl->qdisc->q.qlen != 0) {
 			/* update ed */
 			next_len = qdisc_peek_len(cl->qdisc);
 			if (realtime)
 				update_ed(cl, next_len);
 			else
 				update_d(cl, next_len);
+		} else {
+			/* the class becomes passive */
+			eltree_remove(cl);
 		}
-	} else {
-		/* the class becomes passive */
-		set_passive(cl);
 	}
 
 	qdisc_bstats_update(sch, skb);

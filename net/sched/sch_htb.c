@@ -1186,8 +1186,7 @@ static void htb_qlen_notify(struct Qdisc *sch, unsigned long arg)
 {
 	struct htb_class *cl = (struct htb_class *)arg;
 
-	if (cl->un.leaf.q->q.qlen == 0)
-		htb_deactivate(qdisc_priv(sch), cl);
+	htb_deactivate(qdisc_priv(sch), cl);
 }
 
 static unsigned long htb_get(struct Qdisc *sch, u32 classid)
@@ -1258,8 +1257,10 @@ static void htb_destroy(struct Qdisc *sch)
 	tcf_block_put(q->block);
 
 	for (i = 0; i < q->clhash.hashsize; i++) {
-		hlist_for_each_entry(cl, &q->clhash.hash[i], common.hnode)
+		hlist_for_each_entry(cl, &q->clhash.hash[i], common.hnode) {
 			tcf_block_put(cl->block);
+			cl->block = NULL;
+		}
 	}
 	for (i = 0; i < q->clhash.hashsize; i++) {
 		hlist_for_each_entry_safe(cl, next, &q->clhash.hash[i],
