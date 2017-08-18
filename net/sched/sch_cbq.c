@@ -1385,8 +1385,7 @@ static void cbq_qlen_notify(struct Qdisc *sch, unsigned long arg)
 {
 	struct cbq_class *cl = (struct cbq_class *)arg;
 
-	if (cl->q->q.qlen == 0)
-		cbq_deactivate_class(cl);
+	cbq_deactivate_class(cl);
 }
 
 static unsigned long cbq_get(struct Qdisc *sch, u32 classid)
@@ -1431,8 +1430,10 @@ static void cbq_destroy(struct Qdisc *sch)
 	 * be bound to classes which have been destroyed already. --TGR '04
 	 */
 	for (h = 0; h < q->clhash.hashsize; h++) {
-		hlist_for_each_entry(cl, &q->clhash.hash[h], common.hnode)
+		hlist_for_each_entry(cl, &q->clhash.hash[h], common.hnode) {
 			tcf_block_put(cl->block);
+			cl->block = NULL;
+		}
 	}
 	for (h = 0; h < q->clhash.hashsize; h++) {
 		hlist_for_each_entry_safe(cl, next, &q->clhash.hash[h],
