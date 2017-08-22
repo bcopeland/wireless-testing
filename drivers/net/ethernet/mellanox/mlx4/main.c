@@ -432,7 +432,7 @@ static int mlx4_dev_cap(struct mlx4_dev *dev, struct mlx4_dev_cap *dev_cap)
 		/* Virtual PCI function needs to determine UAR page size from
 		 * firmware. Only master PCI function can set the uar page size
 		 */
-		if (enable_4k_uar)
+		if (enable_4k_uar || !dev->persist->num_vfs)
 			dev->uar_page_shift = DEFAULT_UAR_PAGE_SHIFT;
 		else
 			dev->uar_page_shift = PAGE_SHIFT;
@@ -925,10 +925,10 @@ static int mlx4_slave_cap(struct mlx4_dev *dev)
 	mlx4_replace_zero_macs(dev);
 
 	dev->caps.qp0_qkey = kcalloc(dev->caps.num_ports, sizeof(u32), GFP_KERNEL);
-	dev->caps.qp0_tunnel = kcalloc(dev->caps.num_ports, sizeof (u32), GFP_KERNEL);
-	dev->caps.qp0_proxy = kcalloc(dev->caps.num_ports, sizeof (u32), GFP_KERNEL);
-	dev->caps.qp1_tunnel = kcalloc(dev->caps.num_ports, sizeof (u32), GFP_KERNEL);
-	dev->caps.qp1_proxy = kcalloc(dev->caps.num_ports, sizeof (u32), GFP_KERNEL);
+	dev->caps.qp0_tunnel = kcalloc(dev->caps.num_ports, sizeof(u32), GFP_KERNEL);
+	dev->caps.qp0_proxy = kcalloc(dev->caps.num_ports, sizeof(u32), GFP_KERNEL);
+	dev->caps.qp1_tunnel = kcalloc(dev->caps.num_ports, sizeof(u32), GFP_KERNEL);
+	dev->caps.qp1_proxy = kcalloc(dev->caps.num_ports, sizeof(u32), GFP_KERNEL);
 
 	if (!dev->caps.qp0_tunnel || !dev->caps.qp0_proxy ||
 	    !dev->caps.qp1_tunnel || !dev->caps.qp1_proxy ||
@@ -2277,7 +2277,7 @@ static int mlx4_init_hca(struct mlx4_dev *dev)
 
 		dev->caps.max_fmr_maps = (1 << (32 - ilog2(dev->caps.num_mpts))) - 1;
 
-		if (enable_4k_uar) {
+		if (enable_4k_uar || !dev->persist->num_vfs) {
 			init_hca.log_uar_sz = ilog2(dev->caps.num_uars) +
 						    PAGE_SHIFT - DEFAULT_UAR_PAGE_SHIFT;
 			init_hca.uar_page_sz = DEFAULT_UAR_PAGE_SHIFT - 12;
@@ -2399,7 +2399,7 @@ static int mlx4_init_hca(struct mlx4_dev *dev)
 		dev->caps.rx_checksum_flags_port[2] = params.rx_csum_flags_port_2;
 	}
 	priv->eq_table.inta_pin = adapter.inta_pin;
-	memcpy(dev->board_id, adapter.board_id, sizeof dev->board_id);
+	memcpy(dev->board_id, adapter.board_id, sizeof(dev->board_id));
 
 	return 0;
 
@@ -2869,7 +2869,7 @@ static void mlx4_enable_msi_x(struct mlx4_dev *dev)
 				dev->caps.num_eqs - dev->caps.reserved_eqs,
 				MAX_MSIX);
 
-		entries = kcalloc(nreq, sizeof *entries, GFP_KERNEL);
+		entries = kcalloc(nreq, sizeof(*entries), GFP_KERNEL);
 		if (!entries)
 			goto no_msi;
 
@@ -3782,7 +3782,6 @@ err_release_regions:
 
 err_disable_pdev:
 	mlx4_pci_disable_device(&priv->dev);
-	pci_set_drvdata(pdev, NULL);
 	return err;
 }
 
@@ -3997,7 +3996,6 @@ static void mlx4_remove_one(struct pci_dev *pdev)
 	devlink_unregister(devlink);
 	kfree(dev->persist);
 	devlink_free(devlink);
-	pci_set_drvdata(pdev, NULL);
 }
 
 static int restore_current_port_types(struct mlx4_dev *dev,
