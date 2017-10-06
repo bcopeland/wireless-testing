@@ -793,6 +793,7 @@ struct mvpp2 {
 	struct clk *pp_clk;
 	struct clk *gop_clk;
 	struct clk *mg_clk;
+	struct clk *axi_clk;
 
 	/* List of pointers to port structures */
 	struct mvpp2_port **port_list;
@@ -6459,7 +6460,6 @@ static int mvpp2_tx(struct sk_buff *skb, struct net_device *dev)
 		if (mvpp2_tx_frag_process(port, skb, aggr_txq, txq)) {
 			tx_desc_unmap_put(port, txq, tx_desc);
 			frags = 0;
-			goto out;
 		}
 	}
 
@@ -7970,6 +7970,18 @@ static int mvpp2_probe(struct platform_device *pdev)
 		err = clk_prepare_enable(priv->mg_clk);
 		if (err < 0)
 			goto err_gop_clk;
+
+		priv->axi_clk = devm_clk_get(&pdev->dev, "axi_clk");
+		if (IS_ERR(priv->axi_clk)) {
+			err = PTR_ERR(priv->axi_clk);
+			if (err == -EPROBE_DEFER)
+				goto err_gop_clk;
+			priv->axi_clk = NULL;
+		} else {
+			err = clk_prepare_enable(priv->axi_clk);
+			if (err < 0)
+				goto err_gop_clk;
+		}
 	}
 
 	/* Get system's tclk rate */
@@ -8024,6 +8036,7 @@ static int mvpp2_probe(struct platform_device *pdev)
 	return 0;
 
 err_mg_clk:
+	clk_disable_unprepare(priv->axi_clk);
 	if (priv->hw_version == MVPP22)
 		clk_disable_unprepare(priv->mg_clk);
 err_gop_clk:
@@ -8061,6 +8074,7 @@ static int mvpp2_remove(struct platform_device *pdev)
 				  aggr_txq->descs_dma);
 	}
 
+	clk_disable_unprepare(priv->axi_clk);
 	clk_disable_unprepare(priv->mg_clk);
 	clk_disable_unprepare(priv->pp_clk);
 	clk_disable_unprepare(priv->gop_clk);
