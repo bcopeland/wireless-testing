@@ -54,12 +54,10 @@ static int bnxt_tc_parse_redir(struct bnxt *bp,
 			       struct bnxt_tc_actions *actions,
 			       const struct tc_action *tc_act)
 {
-	int ifindex = tcf_mirred_ifindex(tc_act);
-	struct net_device *dev;
+	struct net_device *dev = tcf_mirred_dev(tc_act);
 
-	dev = __dev_get_by_index(dev_net(bp->dev), ifindex);
 	if (!dev) {
-		netdev_info(bp->dev, "no dev for ifindex=%d", ifindex);
+		netdev_info(bp->dev, "no dev in mirred action");
 		return -EINVAL;
 	}
 
@@ -148,9 +146,6 @@ static int bnxt_tc_parse_actions(struct bnxt *bp,
 		}
 	}
 
-	if (rc)
-		return rc;
-
 	if (actions->flags & BNXT_TC_ACTION_FLAG_FWD) {
 		if (actions->flags & BNXT_TC_ACTION_FLAG_TUNNEL_ENCAP) {
 			/* dst_fid is PF's fid */
@@ -164,7 +159,7 @@ static int bnxt_tc_parse_actions(struct bnxt *bp,
 		}
 	}
 
-	return rc;
+	return 0;
 }
 
 #define GET_KEY(flow_cmd, key_type)					\
@@ -421,7 +416,7 @@ static int bnxt_hwrm_cfa_flow_alloc(struct bnxt *bp, struct bnxt_tc_flow *flow,
 	}
 
 	/* If all IP and L4 fields are wildcarded then this is an L2 flow */
-	if (is_wildcard(&l3_mask, sizeof(l3_mask)) &&
+	if (is_wildcard(l3_mask, sizeof(*l3_mask)) &&
 	    is_wildcard(&flow->l4_mask, sizeof(flow->l4_mask))) {
 		flow_flags |= CFA_FLOW_ALLOC_REQ_FLAGS_FLOWTYPE_L2;
 	} else {
@@ -1417,11 +1412,7 @@ bnxt_tc_flow_stats_batch_prep(struct bnxt *bp,
 	void *flow_node;
 	int rc, i;
 
-	rc = rhashtable_walk_start(iter);
-	if (rc && rc != -EAGAIN) {
-		i = 0;
-		goto done;
-	}
+	rhashtable_walk_start(iter);
 
 	rc = 0;
 	for (i = 0; i < BNXT_FLOW_STATS_BATCH_MAX; i++) {
