@@ -41,7 +41,6 @@
 static int mlx5i_open(struct net_device *netdev);
 static int mlx5i_close(struct net_device *netdev);
 static int mlx5i_change_mtu(struct net_device *netdev, int new_mtu);
-static int mlx5i_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd);
 
 static const struct net_device_ops mlx5i_netdev_ops = {
 	.ndo_open                = mlx5i_open,
@@ -85,6 +84,8 @@ void mlx5i_init(struct mlx5_core_dev *mdev,
 
 	mlx5e_build_nic_params(mdev, &priv->channels.params, profile->max_nch(mdev));
 	mlx5i_build_nic_params(mdev, &priv->channels.params);
+
+	mlx5e_timestamp_init(priv);
 
 	/* netdev init */
 	netdev->hw_features    |= NETIF_F_SG;
@@ -396,7 +397,7 @@ int mlx5i_dev_init(struct net_device *dev)
 	return 0;
 }
 
-static int mlx5i_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
+int mlx5i_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
 	struct mlx5e_priv *priv = mlx5i_epriv(dev);
 
@@ -450,7 +451,6 @@ static int mlx5i_open(struct net_device *netdev)
 
 	mlx5e_refresh_tirs(epriv, false);
 	mlx5e_activate_priv_channels(epriv);
-	mlx5e_timestamp_set(epriv);
 
 	mutex_unlock(&epriv->state_lock);
 	return 0;
