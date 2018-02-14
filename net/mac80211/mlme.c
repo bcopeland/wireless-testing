@@ -3368,6 +3368,8 @@ static void ieee80211_rx_mgmt_beacon(struct ieee80211_sub_if_data *sdata,
 	bssid = ifmgd->associated->bssid;
 
 	/* Track average RSSI from the Beacon frames of the current AP */
+	if (rx_status->flag & RX_FLAG_NO_SIGNAL_VAL)
+		goto skip_signal_processing;
 	if (ifmgd->flags & IEEE80211_STA_RESET_SIGNAL_AVE) {
 		ifmgd->flags &= ~IEEE80211_STA_RESET_SIGNAL_AVE;
 		ewma_beacon_signal_init(&ifmgd->ave_beacon_signal);
@@ -3454,6 +3456,7 @@ static void ieee80211_rx_mgmt_beacon(struct ieee80211_sub_if_data *sdata,
 				sig, GFP_KERNEL);
 		}
 	}
+skip_signal_processing:
 
 	if (ifmgd->flags & IEEE80211_STA_CONNECTION_POLL) {
 		mlme_dbg_ratelimited(sdata,
