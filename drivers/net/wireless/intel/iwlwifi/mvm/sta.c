@@ -2039,7 +2039,7 @@ int iwl_mvm_add_mcast_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif)
 	struct iwl_trans_txq_scd_cfg cfg = {
 		.fifo = IWL_MVM_TX_FIFO_MCAST,
 		.sta_id = msta->sta_id,
-		.tid = IWL_MAX_TID_COUNT,
+		.tid = 0,
 		.aggregate = false,
 		.frame_limit = IWL_FRAME_LIMIT,
 	};
@@ -2051,6 +2051,17 @@ int iwl_mvm_add_mcast_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif)
 	if (WARN_ON(vif->type != NL80211_IFTYPE_AP &&
 		    vif->type != NL80211_IFTYPE_ADHOC))
 		return -ENOTSUPP;
+
+	/*
+	 * In IBSS, ieee80211_check_queues() sets the cab_queue to be
+	 * invalid, so make sure we use the queue we want.
+	 * Note that this is done here as we want to avoid making DQA
+	 * changes in mac80211 layer.
+	 */
+	if (vif->type == NL80211_IFTYPE_ADHOC) {
+		vif->cab_queue = IWL_MVM_DQA_GCAST_QUEUE;
+		mvmvif->cab_queue = vif->cab_queue;
+	}
 
 	/*
 	 * While in previous FWs we had to exclude cab queue from TFD queue
@@ -2079,24 +2090,13 @@ int iwl_mvm_add_mcast_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif)
 	if (iwl_mvm_has_new_tx_api(mvm)) {
 		int queue = iwl_mvm_tvqm_enable_txq(mvm, vif->cab_queue,
 						    msta->sta_id,
-						    IWL_MAX_TID_COUNT,
+						    0,
 						    timeout);
 		mvmvif->cab_queue = queue;
 	} else if (!fw_has_api(&mvm->fw->ucode_capa,
-			       IWL_UCODE_TLV_API_STA_TYPE)) {
-		/*
-		 * In IBSS, ieee80211_check_queues() sets the cab_queue to be
-		 * invalid, so make sure we use the queue we want.
-		 * Note that this is done here as we want to avoid making DQA
-		 * changes in mac80211 layer.
-		 */
-		if (vif->type == NL80211_IFTYPE_ADHOC) {
-			vif->cab_queue = IWL_MVM_DQA_GCAST_QUEUE;
-			mvmvif->cab_queue = vif->cab_queue;
-		}
+			       IWL_UCODE_TLV_API_STA_TYPE))
 		iwl_mvm_enable_txq(mvm, vif->cab_queue, vif->cab_queue, 0,
 				   &cfg, timeout);
-	}
 
 	return 0;
 }
@@ -2115,7 +2115,7 @@ int iwl_mvm_rm_mcast_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif)
 	iwl_mvm_flush_sta(mvm, &mvmvif->mcast_sta, true, 0);
 
 	iwl_mvm_disable_txq(mvm, mvmvif->cab_queue, vif->cab_queue,
-			    IWL_MAX_TID_COUNT, 0);
+			    0, 0);
 
 	ret = iwl_mvm_rm_sta_common(mvm, mvmvif->mcast_sta.sta_id);
 	if (ret)
@@ -3170,8 +3170,9 @@ static int __iwl_mvm_remove_sta_key(struct iwl_mvm *mvm, u8 sta_id,
 	int ret, size;
 	u32 status;
 
+	/* This is a valid situation for GTK removal */
 	if (sta_id == IWL_MVM_INVALID_STA)
-		return -EINVAL;
+		return 0;
 
 	key_flags = cpu_to_le16((keyconf->keyidx << STA_KEY_FLG_KEYID_POS) &
 				 STA_KEY_FLG_KEYID_MSK);
@@ -3232,17 +3233,9 @@ int iwl_mvm_set_sta_key(struct iwl_mvm *mvm,
 		}
 		sta_id = mvm_sta->sta_id;
 
-		if (keyconf->cipher == WLAN_CIPHER_SUITE_AES_CMAC ||
-		    keyconf->cipher == WLAN_CIPHER_SUITE_BIP_GMAC_128 ||
-		    keyconf->cipher == WLAN_CIPHER_SUITE_BIP_GMAC_256) {
-			ret = iwl_mvm_send_sta_igtk(mvm, keyconf, sta_id,
-						    false);
-			goto end;
-		}
-
 		/*
 		 * It is possible that the 'sta' parameter is NULL, and thus
-		 * there is a need to retrieve  the sta from the local station
+		 * there is a need to retrieve the sta from the local station
 		 * table.
 		 */
 		if (!sta) {
@@ -3257,6 +3250,17 @@ int iwl_mvm_set_sta_key(struct iwl_mvm *mvm,
 
 		if (WARN_ON_ONCE(iwl_mvm_sta_from_mac80211(sta)->vif != vif))
 			return -EINVAL;
+	} else {
+		struct iwl_mvm_vif *mvmvif = iwl_mvm_vif_from_mac80211(vif);
+
+		sta_id = mvmvif->mcast_sta.sta_id;
+	}
+
+	if (keyconf->cipher == WLAN_CIPHER_SUITE_AES_CMAC ||
+	    keyconf->cipher == WLAN_CIPHER_SUITE_BIP_GMAC_128 ||
+	    keyconf->cipher == WLAN_CIPHER_SUITE_BIP_GMAC_256) {
+		ret = iwl_mvm_send_sta_igtk(mvm, keyconf, sta_id, false);
+		goto end;
 	}
 
 	/* If the key_offset is not pre-assigned, we need to find a
