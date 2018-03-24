@@ -5423,6 +5423,7 @@ err:
 static void nf_tables_flowtable_destroy(struct nft_flowtable *flowtable)
 {
 	cancel_delayed_work_sync(&flowtable->data.gc_work);
+	kfree(flowtable->ops);
 	kfree(flowtable->name);
 	flowtable->data.type->free(&flowtable->data);
 	rhashtable_destroy(&flowtable->data.rhashtable);
@@ -6596,6 +6597,7 @@ static void __net_exit nf_tables_exit_net(struct net *net)
 static struct pernet_operations nf_tables_net_ops = {
 	.init	= nf_tables_init_net,
 	.exit	= nf_tables_exit_net,
+	.async	= true,
 };
 
 static int __init nf_tables_module_init(void)
