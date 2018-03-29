@@ -4134,6 +4134,9 @@ static int nl80211_start_ap(struct sk_buff *skb, struct genl_info *info)
 		wdev->chandef = params.chandef;
 		wdev->ssid_len = params.ssid_len;
 		memcpy(wdev->ssid, params.ssid, wdev->ssid_len);
+
+		if (info->attrs[NL80211_ATTR_SOCKET_OWNER])
+			wdev->conn_owner_nlportid = info->snd_portid;
 	}
 	wdev_unlock(wdev);
 
@@ -7551,12 +7554,13 @@ static int nl80211_start_radar_detection(struct sk_buff *skb,
 	struct cfg80211_registered_device *rdev = info->user_ptr[0];
 	struct net_device *dev = info->user_ptr[1];
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
+	struct wiphy *wiphy = wdev->wiphy;
 	struct cfg80211_chan_def chandef;
 	enum nl80211_dfs_regions dfs_region;
 	unsigned int cac_time_ms;
 	int err;
 
-	dfs_region = reg_get_dfs_region(wdev->wiphy);
+	dfs_region = reg_get_dfs_region(wiphy);
 	if (dfs_region == NL80211_DFS_UNSET)
 		return -EINVAL;
 
@@ -7570,16 +7574,19 @@ static int nl80211_start_radar_detection(struct sk_buff *skb,
 	if (wdev->cac_started)
 		return -EBUSY;
 
-	err = cfg80211_chandef_dfs_required(wdev->wiphy, &chandef,
-					    wdev->iftype);
+	err = cfg80211_chandef_dfs_required(wiphy, &chandef, wdev->iftype);
 	if (err < 0)
 		return err;
 
 	if (err == 0)
 		return -EINVAL;
 
-	if (!cfg80211_chandef_dfs_usable(wdev->wiphy, &chandef))
+	if (!cfg80211_chandef_dfs_usable(wiphy, &chandef))
 		return -EINVAL;
+
+	/* CAC start is offloaded to HW and can't be started manually */
+	if (wiphy_ext_feature_isset(wiphy, NL80211_EXT_FEATURE_DFS_OFFLOAD))
+		return -EOPNOTSUPP;
 
 	if (!rdev->ops->start_radar_detection)
 		return -EOPNOTSUPP;
@@ -8675,9 +8682,14 @@ static int nl80211_join_ibss(struct sk_buff *skb, struct genl_info *info)
 	ibss.userspace_handles_dfs =
 		nla_get_flag(info->attrs[NL80211_ATTR_HANDLE_DFS]);
 
-	err = cfg80211_join_ibss(rdev, dev, &ibss, connkeys);
+	wdev_lock(dev->ieee80211_ptr);
+	err = __cfg80211_join_ibss(rdev, dev, &ibss, connkeys);
 	if (err)
 		kzfree(connkeys);
+	else if (info->attrs[NL80211_ATTR_SOCKET_OWNER])
+		dev->ieee80211_ptr->conn_owner_nlportid = info->snd_portid;
+	wdev_unlock(dev->ieee80211_ptr);
+
 	return err;
 }
 
@@ -10083,7 +10095,7 @@ static int nl80211_join_mesh(struct sk_buff *skb, struct genl_info *info)
 		if (err)
 			return err;
 	} else {
-		/* cfg80211_join_mesh() will sort it out */
+		/* __cfg80211_join_mesh() will sort it out */
 		setup.chandef.chan = NULL;
 	}
 
@@ -10121,7 +10133,13 @@ static int nl80211_join_mesh(struct sk_buff *skb, struct genl_info *info)
 	setup.userspace_handles_dfs =
 		nla_get_flag(info->attrs[NL80211_ATTR_HANDLE_DFS]);
 
-	return cfg80211_join_mesh(rdev, dev, &setup, &cfg);
+	wdev_lock(dev->ieee80211_ptr);
+	err = __cfg80211_join_mesh(rdev, dev, &setup, &cfg);
+	if (!err && info->attrs[NL80211_ATTR_SOCKET_OWNER])
+		dev->ieee80211_ptr->conn_owner_nlportid = info->snd_portid;
+	wdev_unlock(dev->ieee80211_ptr);
+
+	return err;
 }
 
 static int nl80211_leave_mesh(struct sk_buff *skb, struct genl_info *info)

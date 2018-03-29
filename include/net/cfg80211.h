@@ -6,6 +6,7 @@
  * Copyright 2006-2010	Johannes Berg <johannes@sipsolutions.net>
  * Copyright 2013-2014 Intel Mobile Communications GmbH
  * Copyright 2015-2017	Intel Deutschland GmbH
+ * Copyright (C) 2018 Intel Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -3572,15 +3573,15 @@ enum wiphy_opmode_flag {
 /**
  * struct sta_opmode_info - Station's ht/vht operation mode information
  * @changed: contains value from &enum wiphy_opmode_flag
- * @smps_mode: New SMPS mode of a station
- * @bw: new max bandwidth value of a station
+ * @smps_mode: New SMPS mode value from &enum nl80211_smps_mode of a station
+ * @bw: new max bandwidth value from &enum nl80211_chan_width of a station
  * @rx_nss: new rx_nss value of a station
  */
 
 struct sta_opmode_info {
 	u32 changed;
-	u8 smps_mode;
-	u8 bw;
+	enum nl80211_smps_mode smps_mode;
+	enum nl80211_chan_width bw;
 	u8 rx_nss;
 };
 
@@ -4656,6 +4657,33 @@ const struct ieee80211_reg_rule *freq_reg_info(struct wiphy *wiphy,
  * proper string representation.
  */
 const char *reg_initiator_name(enum nl80211_reg_initiator initiator);
+
+/**
+ * DOC: Internal regulatory db functions
+ *
+ */
+
+/**
+ * reg_query_regdb_wmm -  Query internal regulatory db for wmm rule
+ * Regulatory self-managed driver can use it to proactively
+ *
+ * @alpha2: the ISO/IEC 3166 alpha2 wmm rule to be queried.
+ * @freq: the freqency(in MHz) to be queried.
+ * @ptr: pointer where the regdb wmm data is to be stored (or %NULL if
+ *	irrelevant). This can be used later for deduplication.
+ * @rule: pointer to store the wmm rule from the regulatory db.
+ *
+ * Self-managed wireless drivers can use this function to  query
+ * the internal regulatory database to check whether the given
+ * ISO/IEC 3166 alpha2 country and freq have wmm rule limitations.
+ *
+ * Drivers should check the return value, its possible you can get
+ * an -ENODATA.
+ *
+ * Return: 0 on success. -ENODATA.
+ */
+int reg_query_regdb_wmm(char *alpha2, int freq, u32 *ptr,
+			struct ieee80211_wmm_rule *rule);
 
 /*
  * callbacks for asynchronous cfg80211 methods, notification

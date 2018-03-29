@@ -2804,7 +2804,8 @@ ieee80211_rx_h_mgmt_check(struct ieee80211_rx_data *rx)
 	    !(rx->flags & IEEE80211_RX_BEACON_REPORTED)) {
 		int sig = 0;
 
-		if (ieee80211_hw_check(&rx->local->hw, SIGNAL_DBM))
+		if (ieee80211_hw_check(&rx->local->hw, SIGNAL_DBM) &&
+		    !(status->flag & RX_FLAG_NO_SIGNAL_VAL))
 			sig = status->signal;
 
 		cfg80211_report_obss_beacon(rx->local->hw.wiphy,
@@ -2882,7 +2883,8 @@ ieee80211_rx_h_action(struct ieee80211_rx_data *rx)
 			if (rx->sta->sta.smps_mode == smps_mode)
 				goto handled;
 			rx->sta->sta.smps_mode = smps_mode;
-			sta_opmode.smps_mode = smps_mode;
+			sta_opmode.smps_mode =
+				ieee80211_smps_mode_to_smps_mode(smps_mode);
 			sta_opmode.changed = STA_OPMODE_SMPS_MODE_CHANGED;
 
 			sband = rx->local->hw.wiphy->bands[status->band];
@@ -2920,7 +2922,8 @@ ieee80211_rx_h_action(struct ieee80211_rx_data *rx)
 
 			rx->sta->sta.bandwidth = new_bw;
 			sband = rx->local->hw.wiphy->bands[status->band];
-			sta_opmode.bw = new_bw;
+			sta_opmode.bw =
+				ieee80211_sta_rx_bw_to_chan_width(rx->sta);
 			sta_opmode.changed = STA_OPMODE_MAX_BW_CHANGED;
 
 			rate_control_rate_update(local, sband, rx->sta,
@@ -3145,7 +3148,8 @@ ieee80211_rx_h_userspace_mgmt(struct ieee80211_rx_data *rx)
 	 * it transmitted were processed or returned.
 	 */
 
-	if (ieee80211_hw_check(&rx->local->hw, SIGNAL_DBM))
+	if (ieee80211_hw_check(&rx->local->hw, SIGNAL_DBM) &&
+	    !(status->flag & RX_FLAG_NO_SIGNAL_VAL))
 		sig = status->signal;
 
 	if (cfg80211_rx_mgmt(&rx->sdata->wdev, status->freq, sig,
