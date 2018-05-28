@@ -354,8 +354,6 @@ static int __fib_validate_source(struct sk_buff *skb, __be32 src, __be32 dst,
 		fl4.fl4_dport = 0;
 	}
 
-	trace_fib_validate_source(dev, &fl4);
-
 	if (fib_lookup(net, &fl4, &res, 0))
 		goto last_resort;
 	if (res.type != RTN_UNICAST &&
@@ -650,6 +648,9 @@ const struct nla_policy rtm_ipv4_policy[RTA_MAX + 1] = {
 	[RTA_UID]		= { .type = NLA_U32 },
 	[RTA_MARK]		= { .type = NLA_U32 },
 	[RTA_TABLE]		= { .type = NLA_U32 },
+	[RTA_IP_PROTO]		= { .type = NLA_U8 },
+	[RTA_SPORT]		= { .type = NLA_U16 },
+	[RTA_DPORT]		= { .type = NLA_U16 },
 };
 
 static int rtm_to_fib_config(struct net *net, struct sk_buff *skb,
