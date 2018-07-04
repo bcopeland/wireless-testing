@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Netronome Systems, Inc.
+ * Copyright (C) 2017-2018 Netronome Systems, Inc.
  *
  * This software is dual licensed under the GNU General License Version 2,
  * June 1991 as shown in the file COPYING in the top-level directory of this
@@ -30,8 +30,6 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-
-/* Author: Jakub Kicinski <kubakici@wp.pl> */
 
 #include <errno.h>
 #include <fcntl.h>
@@ -694,15 +692,19 @@ static int do_load(int argc, char **argv)
 		return -1;
 	}
 
-	if (do_pin_fd(prog_fd, argv[1])) {
-		p_err("failed to pin program");
-		return -1;
-	}
+	if (do_pin_fd(prog_fd, argv[1]))
+		goto err_close_obj;
 
 	if (json_output)
 		jsonw_null(json_wtr);
 
+	bpf_object__close(obj);
+
 	return 0;
+
+err_close_obj:
+	bpf_object__close(obj);
+	return -1;
 }
 
 static int do_help(int argc, char **argv)

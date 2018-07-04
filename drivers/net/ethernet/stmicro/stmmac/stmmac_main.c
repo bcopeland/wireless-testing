@@ -1804,6 +1804,8 @@ static void stmmac_dma_operation_mode(struct stmmac_priv *priv)
 
 		stmmac_dma_rx_mode(priv, priv->ioaddr, rxmode, chan,
 				rxfifosz, qmode);
+		stmmac_set_dma_bfsize(priv, priv->ioaddr, priv->dma_buf_sz,
+				chan);
 	}
 
 	for (chan = 0; chan < tx_channels_count; chan++) {
@@ -3776,7 +3778,7 @@ static int stmmac_setup_tc_block(struct stmmac_priv *priv,
 	switch (f->command) {
 	case TC_BLOCK_BIND:
 		return tcf_block_cb_register(f->block, stmmac_setup_tc_block_cb,
-				priv, priv);
+				priv, priv, f->extack);
 	case TC_BLOCK_UNBIND:
 		tcf_block_cb_unregister(f->block, stmmac_setup_tc_block_cb, priv);
 		return 0;
@@ -3793,6 +3795,8 @@ static int stmmac_setup_tc(struct net_device *ndev, enum tc_setup_type type,
 	switch (type) {
 	case TC_SETUP_BLOCK:
 		return stmmac_setup_tc_block(priv, type_data);
+	case TC_SETUP_QDISC_CBS:
+		return stmmac_tc_setup_cbs(priv, priv, type_data);
 	default:
 		return -EOPNOTSUPP;
 	}

@@ -221,7 +221,6 @@ qed_dcbx_update_app_info(struct qed_dcbx_results *p_data,
 	struct qed_hw_info *p_info = &p_hwfn->hw_info;
 	enum qed_pci_personality personality;
 	enum dcbx_protocol_type id;
-	char *name;
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(qed_dcbx_app_update); i++) {
@@ -231,7 +230,6 @@ qed_dcbx_update_app_info(struct qed_dcbx_results *p_data,
 			continue;
 
 		personality = qed_dcbx_app_update[i].personality;
-		name = qed_dcbx_app_update[i].name;
 
 		qed_dcbx_set_params(p_data, p_info, enable,
 				    prio, tc, type, personality);
@@ -709,9 +707,9 @@ qed_dcbx_get_local_lldp_params(struct qed_hwfn *p_hwfn,
 	p_local = &p_hwfn->p_dcbx_info->lldp_local[LLDP_NEAREST_BRIDGE];
 
 	memcpy(params->lldp_local.local_chassis_id, p_local->local_chassis_id,
-	       ARRAY_SIZE(p_local->local_chassis_id));
+	       sizeof(p_local->local_chassis_id));
 	memcpy(params->lldp_local.local_port_id, p_local->local_port_id,
-	       ARRAY_SIZE(p_local->local_port_id));
+	       sizeof(p_local->local_port_id));
 }
 
 static void
@@ -723,9 +721,9 @@ qed_dcbx_get_remote_lldp_params(struct qed_hwfn *p_hwfn,
 	p_remote = &p_hwfn->p_dcbx_info->lldp_remote[LLDP_NEAREST_BRIDGE];
 
 	memcpy(params->lldp_remote.peer_chassis_id, p_remote->peer_chassis_id,
-	       ARRAY_SIZE(p_remote->peer_chassis_id));
+	       sizeof(p_remote->peer_chassis_id));
 	memcpy(params->lldp_remote.peer_port_id, p_remote->peer_port_id,
-	       ARRAY_SIZE(p_remote->peer_port_id));
+	       sizeof(p_remote->peer_port_id));
 }
 
 static int

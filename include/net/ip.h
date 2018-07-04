@@ -138,6 +138,8 @@ int ip_build_and_send_pkt(struct sk_buff *skb, const struct sock *sk,
 			  struct ip_options_rcu *opt);
 int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt,
 	   struct net_device *orig_dev);
+void ip_list_rcv(struct list_head *head, struct packet_type *pt,
+		 struct net_device *orig_dev);
 int ip_local_deliver(struct sk_buff *skb);
 int ip_mr_input(struct sk_buff *skb);
 int ip_output(struct net *net, struct sock *sk, struct sk_buff *skb);
@@ -148,7 +150,8 @@ void ip_send_check(struct iphdr *ip);
 int __ip_local_out(struct net *net, struct sock *sk, struct sk_buff *skb);
 int ip_local_out(struct net *net, struct sock *sk, struct sk_buff *skb);
 
-int ip_queue_xmit(struct sock *sk, struct sk_buff *skb, struct flowi *fl);
+int __ip_queue_xmit(struct sock *sk, struct sk_buff *skb, struct flowi *fl,
+		    __u8 tos);
 void ip_init(void);
 int ip_append_data(struct sock *sk, struct flowi4 *fl4,
 		   int getfrag(void *from, char *to, int offset, int len,
@@ -173,6 +176,12 @@ struct sk_buff *ip_make_skb(struct sock *sk, struct flowi4 *fl4,
 			    void *from, int length, int transhdrlen,
 			    struct ipcm_cookie *ipc, struct rtable **rtp,
 			    struct inet_cork *cork, unsigned int flags);
+
+static inline int ip_queue_xmit(struct sock *sk, struct sk_buff *skb,
+				struct flowi *fl)
+{
+	return __ip_queue_xmit(sk, skb, fl, inet_sk(sk)->tos);
+}
 
 static inline struct sk_buff *ip_finish_skb(struct sock *sk, struct flowi4 *fl4)
 {
