@@ -1092,6 +1092,9 @@ qtnf_cmd_resp_proc_hw_info(struct qtnf_bus *bus,
 		case QTN_TLV_ID_UBOOT_VER:
 			uboot_ver = (const void *)tlv->val;
 			break;
+		case QTN_TLV_ID_MAX_SCAN_SSIDS:
+			hwinfo->max_scan_ssids = *tlv->val;
+			break;
 		default:
 			break;
 		}
@@ -2260,11 +2263,6 @@ int qtnf_cmd_send_scan(struct qtnf_wmac *mac)
 	int count = 0;
 	int ret;
 
-	if (scan_req->n_ssids > QTNF_MAX_SSID_LIST_LENGTH) {
-		pr_err("MAC%u: too many SSIDs in scan request\n", mac->macid);
-		return -EINVAL;
-	}
-
 	cmd_skb = qtnf_cmd_alloc_new_cmdskb(mac->macid, QLINK_VIFID_RSVD,
 					    QLINK_CMD_SCAN,
 					    sizeof(struct qlink_cmd));
@@ -2797,5 +2795,39 @@ int qtnf_cmd_set_mac_acl(const struct qtnf_vif *vif,
 		break;
 	}
 
+	return ret;
+}
+
+int qtnf_cmd_send_pm_set(const struct qtnf_vif *vif, u8 pm_mode, int timeout)
+{
+	struct qtnf_bus *bus = vif->mac->bus;
+	struct sk_buff *cmd_skb;
+	u16 res_code = QLINK_CMD_RESULT_OK;
+	struct qlink_cmd_pm_set *cmd;
+	int ret = 0;
+
+	cmd_skb = qtnf_cmd_alloc_new_cmdskb(vif->mac->macid, vif->vifid,
+					    QLINK_CMD_PM_SET, sizeof(*cmd));
+	if (!cmd_skb)
+		return -ENOMEM;
+
+	cmd = (struct qlink_cmd_pm_set *)cmd_skb->data;
+	cmd->pm_mode = pm_mode;
+	cmd->pm_standby_timer = cpu_to_le32(timeout);
+
+	qtnf_bus_lock(bus);
+
+	ret = qtnf_cmd_send(bus, cmd_skb, &res_code);
+
+	if (unlikely(ret))
+		goto out;
+
+	if (unlikely(res_code != QLINK_CMD_RESULT_OK)) {
+		pr_err("cmd exec failed: 0x%.4X\n", res_code);
+		ret = -EFAULT;
+	}
+
+out:
+	qtnf_bus_unlock(bus);
 	return ret;
 }
