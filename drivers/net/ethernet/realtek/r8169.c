@@ -77,8 +77,6 @@ static const int multicast_filter_limit = 32;
 #define R8169_TX_RING_BYTES	(NUM_TX_DESC * sizeof(struct TxDesc))
 #define R8169_RX_RING_BYTES	(NUM_RX_DESC * sizeof(struct RxDesc))
 
-#define RTL8169_TX_TIMEOUT	(6*HZ)
-
 /* write/read MMIO register */
 #define RTL_W8(tp, reg, val8)	writeb((val8), tp->mmio_addr + (reg))
 #define RTL_W16(tp, reg, val16)	writew((val16), tp->mmio_addr + (reg))
@@ -1354,7 +1352,8 @@ static void rtl_irq_enable_all(struct rtl8169_private *tp)
 static void rtl8169_irq_mask_and_ack(struct rtl8169_private *tp)
 {
 	rtl_irq_disable(tp);
-	rtl_ack_events(tp, RTL_EVENT_NAPI | tp->event_slow);
+	rtl_ack_events(tp, 0xffff);
+	/* PCI commit */
 	RTL_R8(tp, ChipCmd);
 }
 
@@ -4048,23 +4047,11 @@ static void rtl8169_init_phy(struct net_device *dev, struct rtl8169_private *tp)
 	rtl_hw_phy_config(dev);
 
 	if (tp->mac_version <= RTL_GIGA_MAC_VER_06) {
-		netif_dbg(tp, drv, dev,
-			  "Set MAC Reg C+CR Offset 0x82h = 0x01h\n");
-		RTL_W8(tp, 0x82, 0x01);
-	}
-
-	pci_write_config_byte(tp->pci_dev, PCI_LATENCY_TIMER, 0x40);
-
-	if (tp->mac_version <= RTL_GIGA_MAC_VER_06)
+		pci_write_config_byte(tp->pci_dev, PCI_LATENCY_TIMER, 0x40);
 		pci_write_config_byte(tp->pci_dev, PCI_CACHE_LINE_SIZE, 0x08);
-
-	if (tp->mac_version == RTL_GIGA_MAC_VER_02) {
 		netif_dbg(tp, drv, dev,
 			  "Set MAC Reg C+CR Offset 0x82h = 0x01h\n");
 		RTL_W8(tp, 0x82, 0x01);
-		netif_dbg(tp, drv, dev,
-			  "Set PHY Reg 0x0bh = 0x00h\n");
-		rtl_writephy(tp, 0x0b, 0x0000); //w 0x0b 15 0 0
 	}
 
 	/* We may have called phy_speed_down before */
@@ -4072,13 +4059,12 @@ static void rtl8169_init_phy(struct net_device *dev, struct rtl8169_private *tp)
 
 	genphy_soft_reset(dev->phydev);
 
-	/* It was reported that chip version 33 ends up with 10MBit/Half on a
+	/* It was reported that several chips end up with 10MBit/Half on a
 	 * 1GBit link after resuming from S3. For whatever reason the PHY on
-	 * this chip doesn't properly start a renegotiation when soft-reset.
+	 * these chips doesn't properly start a renegotiation when soft-reset.
 	 * Explicitly requesting a renegotiation fixes this.
 	 */
-	if (tp->mac_version == RTL_GIGA_MAC_VER_33 &&
-	    dev->phydev->autoneg == AUTONEG_ENABLE)
+	if (dev->phydev->autoneg == AUTONEG_ENABLE)
 		phy_restart_aneg(dev->phydev);
 }
 
@@ -4536,9 +4522,14 @@ static void rtl8169_hw_reset(struct rtl8169_private *tp)
 
 static void rtl_set_tx_config_registers(struct rtl8169_private *tp)
 {
-	/* Set DMA burst size and Interframe Gap Time */
-	RTL_W32(tp, TxConfig, (TX_DMA_BURST << TxDMAShift) |
-		(InterFrameGap << TxInterFrameGapShift));
+	u32 val = TX_DMA_BURST << TxDMAShift |
+		  InterFrameGap << TxInterFrameGapShift;
+
+	if (tp->mac_version >= RTL_GIGA_MAC_VER_34 &&
+	    tp->mac_version != RTL_GIGA_MAC_VER_39)
+		val |= TXCFG_AUTO_FIFO;
+
+	RTL_W32(tp, TxConfig, val);
 }
 
 static void rtl_set_rx_max_size(struct rtl8169_private *tp)
@@ -5033,7 +5024,6 @@ static void rtl_hw_start_8168e_2(struct rtl8169_private *tp)
 
 	rtl_disable_clock_request(tp);
 
-	RTL_W32(tp, TxConfig, RTL_R32(tp, TxConfig) | TXCFG_AUTO_FIFO);
 	RTL_W8(tp, MCU, RTL_R8(tp, MCU) & ~NOW_IS_OOB);
 
 	/* Adjust EEE LED frequency */
@@ -5067,7 +5057,6 @@ static void rtl_hw_start_8168f(struct rtl8169_private *tp)
 
 	rtl_disable_clock_request(tp);
 
-	RTL_W32(tp, TxConfig, RTL_R32(tp, TxConfig) | TXCFG_AUTO_FIFO);
 	RTL_W8(tp, MCU, RTL_R8(tp, MCU) & ~NOW_IS_OOB);
 	RTL_W8(tp, DLLPR, RTL_R8(tp, DLLPR) | PFM_EN);
 	RTL_W32(tp, MISC, RTL_R32(tp, MISC) | PWM_EN);
@@ -5112,8 +5101,6 @@ static void rtl_hw_start_8411(struct rtl8169_private *tp)
 
 static void rtl_hw_start_8168g(struct rtl8169_private *tp)
 {
-	RTL_W32(tp, TxConfig, RTL_R32(tp, TxConfig) | TXCFG_AUTO_FIFO);
-
 	rtl_eri_write(tp, 0xc8, ERIAR_MASK_0101, 0x080002, ERIAR_EXGMAC);
 	rtl_eri_write(tp, 0xcc, ERIAR_MASK_0001, 0x38, ERIAR_EXGMAC);
 	rtl_eri_write(tp, 0xd0, ERIAR_MASK_0001, 0x48, ERIAR_EXGMAC);
@@ -5211,8 +5198,6 @@ static void rtl_hw_start_8168h_1(struct rtl8169_private *tp)
 	rtl_hw_aspm_clkreq_enable(tp, false);
 	rtl_ephy_init(tp, e_info_8168h_1, ARRAY_SIZE(e_info_8168h_1));
 
-	RTL_W32(tp, TxConfig, RTL_R32(tp, TxConfig) | TXCFG_AUTO_FIFO);
-
 	rtl_eri_write(tp, 0xc8, ERIAR_MASK_0101, 0x00080002, ERIAR_EXGMAC);
 	rtl_eri_write(tp, 0xcc, ERIAR_MASK_0001, 0x38, ERIAR_EXGMAC);
 	rtl_eri_write(tp, 0xd0, ERIAR_MASK_0001, 0x48, ERIAR_EXGMAC);
@@ -5294,8 +5279,6 @@ static void rtl_hw_start_8168h_1(struct rtl8169_private *tp)
 static void rtl_hw_start_8168ep(struct rtl8169_private *tp)
 {
 	rtl8168ep_stop_cmac(tp);
-
-	RTL_W32(tp, TxConfig, RTL_R32(tp, TxConfig) | TXCFG_AUTO_FIFO);
 
 	rtl_eri_write(tp, 0xc8, ERIAR_MASK_0101, 0x00080002, ERIAR_EXGMAC);
 	rtl_eri_write(tp, 0xcc, ERIAR_MASK_0001, 0x2f, ERIAR_EXGMAC);
@@ -5618,7 +5601,6 @@ static void rtl_hw_start_8402(struct rtl8169_private *tp)
 	/* Force LAN exit from ASPM if Rx/Tx are not idle */
 	RTL_W32(tp, FuncEvent, RTL_R32(tp, FuncEvent) | 0x002800);
 
-	RTL_W32(tp, TxConfig, RTL_R32(tp, TxConfig) | TXCFG_AUTO_FIFO);
 	RTL_W8(tp, MCU, RTL_R8(tp, MCU) & ~NOW_IS_OOB);
 
 	rtl_ephy_init(tp, e_info_8402, ARRAY_SIZE(e_info_8402));
@@ -6869,8 +6851,10 @@ static int rtl8169_suspend(struct device *device)
 {
 	struct pci_dev *pdev = to_pci_dev(device);
 	struct net_device *dev = pci_get_drvdata(pdev);
+	struct rtl8169_private *tp = netdev_priv(dev);
 
 	rtl8169_net_suspend(dev);
+	clk_disable_unprepare(tp->clk);
 
 	return 0;
 }
@@ -6898,6 +6882,9 @@ static int rtl8169_resume(struct device *device)
 {
 	struct pci_dev *pdev = to_pci_dev(device);
 	struct net_device *dev = pci_get_drvdata(pdev);
+	struct rtl8169_private *tp = netdev_priv(dev);
+
+	clk_prepare_enable(tp->clk);
 
 	if (netif_running(dev))
 		__rtl8169_resume(dev);
@@ -7368,11 +7355,9 @@ static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	tp->cp_cmd = RTL_R16(tp, CPlusCmd);
 
-	if ((sizeof(dma_addr_t) > 4) &&
-	    (use_dac == 1 || (use_dac == -1 && pci_is_pcie(pdev) &&
-			      tp->mac_version >= RTL_GIGA_MAC_VER_18)) &&
-	    !pci_set_dma_mask(pdev, DMA_BIT_MASK(64)) &&
-	    !pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(64))) {
+	if (sizeof(dma_addr_t) > 4 && (use_dac == 1 || (use_dac == -1 &&
+	    tp->mac_version >= RTL_GIGA_MAC_VER_18)) &&
+	    !dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64))) {
 
 		/* CPlusCmd Dual Access Cycle is only needed for non-PCIe */
 		if (!pci_is_pcie(pdev))
@@ -7388,13 +7373,11 @@ static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	rtl_init_rxcfg(tp);
 
-	rtl_irq_disable(tp);
+	rtl8169_irq_mask_and_ack(tp);
 
 	rtl_hw_initialize(tp);
 
 	rtl_hw_reset(tp);
-
-	rtl_ack_events(tp, 0xffff);
 
 	pci_set_master(pdev);
 
@@ -7435,7 +7418,6 @@ static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		dev->dev_addr[i] = RTL_R8(tp, MAC0 + i);
 
 	dev->ethtool_ops = &rtl8169_ethtool_ops;
-	dev->watchdog_timeo = RTL8169_TX_TIMEOUT;
 
 	netif_napi_add(dev, &tp->napi, rtl8169_poll, NAPI_POLL_WEIGHT);
 

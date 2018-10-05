@@ -1158,7 +1158,7 @@ static void fec_enet_timeout_work(struct work_struct *work)
 		napi_disable(&fep->napi);
 		netif_tx_lock_bh(ndev);
 		fec_restart(ndev);
-		netif_wake_queue(ndev);
+		netif_tx_wake_all_queues(ndev);
 		netif_tx_unlock_bh(ndev);
 		napi_enable(&fep->napi);
 	}
@@ -1273,7 +1273,7 @@ skb_done:
 
 		/* Since we have freed up a buffer, the ring is no longer full
 		 */
-		if (netif_queue_stopped(ndev)) {
+		if (netif_tx_queue_stopped(nq)) {
 			entries_free = fec_enet_get_free_txdesc_num(txq);
 			if (entries_free >= txq->tx_wake_threshold)
 				netif_tx_wake_queue(nq);
@@ -1746,7 +1746,7 @@ static void fec_enet_adjust_link(struct net_device *ndev)
 			napi_disable(&fep->napi);
 			netif_tx_lock_bh(ndev);
 			fec_restart(ndev);
-			netif_wake_queue(ndev);
+			netif_tx_wake_all_queues(ndev);
 			netif_tx_unlock_bh(ndev);
 			napi_enable(&fep->napi);
 		}
@@ -1946,16 +1946,15 @@ static int fec_enet_mii_probe(struct net_device *ndev)
 
 	/* mask with MAC supported features */
 	if (fep->quirks & FEC_QUIRK_HAS_GBIT) {
-		phy_dev->supported &= PHY_GBIT_FEATURES;
-		phy_dev->supported &= ~SUPPORTED_1000baseT_Half;
+		phy_set_max_speed(phy_dev, 1000);
+		phy_remove_link_mode(phy_dev,
+				     ETHTOOL_LINK_MODE_1000baseT_Half_BIT);
 #if !defined(CONFIG_M5272)
-		phy_dev->supported |= SUPPORTED_Pause;
+		phy_support_sym_pause(phy_dev);
 #endif
 	}
 	else
-		phy_dev->supported &= PHY_BASIC_FEATURES;
-
-	phy_dev->advertising = phy_dev->supported;
+		phy_set_max_speed(phy_dev, 100);
 
 	fep->link = 0;
 	fep->full_duplex = 0;
@@ -2055,8 +2054,7 @@ static int fec_enet_mii_init(struct platform_device *pdev)
 
 	node = of_get_child_by_name(pdev->dev.of_node, "mdio");
 	err = of_mdiobus_register(fep->mii_bus, node);
-	if (node)
-		of_node_put(node);
+	of_node_put(node);
 	if (err)
 		goto err_out_free_mdiobus;
 
@@ -2230,13 +2228,8 @@ static int fec_enet_set_pauseparam(struct net_device *ndev,
 	fep->pause_flag |= pause->rx_pause ? FEC_PAUSE_FLAG_ENABLE : 0;
 	fep->pause_flag |= pause->autoneg ? FEC_PAUSE_FLAG_AUTONEG : 0;
 
-	if (pause->rx_pause || pause->autoneg) {
-		ndev->phydev->supported |= ADVERTISED_Pause;
-		ndev->phydev->advertising |= ADVERTISED_Pause;
-	} else {
-		ndev->phydev->supported &= ~ADVERTISED_Pause;
-		ndev->phydev->advertising &= ~ADVERTISED_Pause;
-	}
+	phy_set_sym_pause(ndev->phydev, pause->rx_pause, pause->tx_pause,
+			  pause->autoneg);
 
 	if (pause->autoneg) {
 		if (netif_running(ndev))
@@ -2247,7 +2240,7 @@ static int fec_enet_set_pauseparam(struct net_device *ndev,
 		napi_disable(&fep->napi);
 		netif_tx_lock_bh(ndev);
 		fec_restart(ndev);
-		netif_wake_queue(ndev);
+		netif_tx_wake_all_queues(ndev);
 		netif_tx_unlock_bh(ndev);
 		napi_enable(&fep->napi);
 	}
