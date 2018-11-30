@@ -2801,7 +2801,7 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/bpf/bpf.git
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/bpf/bpf-next.git
 Q:	https://patchwork.ozlabs.org/project/netdev/list/?delegate=77147
 S:	Supported
-F:	arch/x86/net/bpf_jit*
+F:	arch/*/net/*
 F:	Documentation/networking/filter.txt
 F:	Documentation/bpf/
 F:	include/linux/bpf*
@@ -2820,6 +2820,67 @@ F:	samples/bpf/
 F:	tools/bpf/
 F:	tools/lib/bpf/
 F:	tools/testing/selftests/bpf/
+
+BPF JIT for ARM
+M:	Shubham Bansal <illusionist.neo@gmail.com>
+L:	netdev@vger.kernel.org
+S:	Maintained
+F:	arch/arm/net/
+
+BPF JIT for ARM64
+M:	Daniel Borkmann <daniel@iogearbox.net>
+M:	Alexei Starovoitov <ast@kernel.org>
+M:	Zi Shen Lim <zlim.lnx@gmail.com>
+L:	netdev@vger.kernel.org
+S:	Supported
+F:	arch/arm64/net/
+
+BPF JIT for MIPS (32-BIT AND 64-BIT)
+M:	Paul Burton <paul.burton@mips.com>
+L:	netdev@vger.kernel.org
+S:	Maintained
+F:	arch/mips/net/
+
+BPF JIT for NFP NICs
+M:	Jakub Kicinski <jakub.kicinski@netronome.com>
+L:	netdev@vger.kernel.org
+S:	Supported
+F:	drivers/net/ethernet/netronome/nfp/bpf/
+
+BPF JIT for POWERPC (32-BIT AND 64-BIT)
+M:	Naveen N. Rao <naveen.n.rao@linux.ibm.com>
+M:	Sandipan Das <sandipan@linux.ibm.com>
+L:	netdev@vger.kernel.org
+S:	Maintained
+F:	arch/powerpc/net/
+
+BPF JIT for S390
+M:	Martin Schwidefsky <schwidefsky@de.ibm.com>
+M:	Heiko Carstens <heiko.carstens@de.ibm.com>
+L:	netdev@vger.kernel.org
+S:	Maintained
+F:	arch/s390/net/
+X:	arch/s390/net/pnet.c
+
+BPF JIT for SPARC (32-BIT AND 64-BIT)
+M:	David S. Miller <davem@davemloft.net>
+L:	netdev@vger.kernel.org
+S:	Maintained
+F:	arch/sparc/net/
+
+BPF JIT for X86 32-BIT
+M:	Wang YanQing <udknight@gmail.com>
+L:	netdev@vger.kernel.org
+S:	Maintained
+F:	arch/x86/net/bpf_jit_comp32.c
+
+BPF JIT for X86 64-BIT
+M:	Alexei Starovoitov <ast@kernel.org>
+M:	Daniel Borkmann <daniel@iogearbox.net>
+L:	netdev@vger.kernel.org
+S:	Supported
+F:	arch/x86/net/
+X:	arch/x86/net/bpf_jit_comp32.c
 
 BROADCOM B44 10/100 ETHERNET DRIVER
 M:	Michael Chan <michael.chan@broadcom.com>
@@ -7868,13 +7929,6 @@ F:	include/linux/isdn/
 F:	include/uapi/linux/isdn.h
 F:	include/uapi/linux/isdn/
 
-ISDN SUBSYSTEM (Eicon active card driver)
-M:	Armin Schindler <mac@melware.de>
-L:	isdn4linux@listserv.isdn4linux.de (subscribers-only)
-W:	http://www.melware.de
-S:	Maintained
-F:	drivers/isdn/hardware/eicon/
-
 IT87 HARDWARE MONITORING DRIVER
 M:	Jean Delvare <jdelvare@suse.com>
 L:	linux-hwmon@vger.kernel.org
@@ -10703,6 +10757,14 @@ R:	Charles Gorand <charles.gorand@effinnov.com>
 L:	linux-nfc@lists.01.org (moderated for non-subscribers)
 S:	Supported
 F:	drivers/nfc/nxp-nci
+
+OBJAGG
+M:	Jiri Pirko <jiri@mellanox.com>
+L:	netdev@vger.kernel.org
+S:	Supported
+F:	lib/objagg.c
+F:	lib/test_objagg.c
+F:	include/linux/objagg.h
 
 OBJTOOL
 M:	Josh Poimboeuf <jpoimboe@redhat.com>
