@@ -28,6 +28,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/firmware.h>
 #include <linux/prefetch.h>
+#include <linux/pci-aspm.h>
 #include <linux/ipv6.h>
 #include <net/ip6_checksum.h>
 
@@ -490,10 +491,6 @@ enum rtl_register_content {
 	PCIDAC		= (1 << 4),
 	PCIMulRW	= (1 << 3),
 #define INTT_MASK	GENMASK(1, 0)
-	INTT_0		= 0x0000,	// 8168
-	INTT_1		= 0x0001,	// 8168
-	INTT_2		= 0x0002,	// 8168
-	INTT_3		= 0x0003,	// 8168
 
 	/* rtl8169_PHYstatus */
 	TBI_Enable	= 0x80,
@@ -4702,6 +4699,8 @@ static void rtl_hw_start(struct  rtl8169_private *tp)
 	rtl_set_rx_tx_desc_registers(tp);
 	rtl_lock_config_regs(tp);
 
+	/* disable interrupt coalescing */
+	RTL_W16(tp, IntrMitigate, 0x0000);
 	/* Initially a 10 us delay. Turned it into a PCI commit. - FR */
 	RTL_R8(tp, IntrMask);
 	RTL_W8(tp, ChipCmd, CmdTxEnb | CmdRxEnb);
@@ -4733,12 +4732,6 @@ static void rtl_hw_start_8169(struct rtl8169_private *tp)
 	RTL_W16(tp, CPlusCmd, tp->cp_cmd);
 
 	rtl8169_set_magic_reg(tp, tp->mac_version);
-
-	/*
-	 * Undocumented corner. Supposedly:
-	 * (TxTimer << 12) | (TxPackets << 8) | (RxTimer << 4) | RxPackets
-	 */
-	RTL_W16(tp, IntrMitigate, 0x0000);
 
 	RTL_W32(tp, RxMissed, 0);
 }
@@ -5456,12 +5449,6 @@ static void rtl_hw_start_8168(struct rtl8169_private *tp)
 {
 	RTL_W8(tp, MaxTxPacketSize, TxPacketMax);
 
-	tp->cp_cmd &= ~INTT_MASK;
-	tp->cp_cmd |= PktCntrDisable | INTT_1;
-	RTL_W16(tp, CPlusCmd, tp->cp_cmd);
-
-	RTL_W16(tp, IntrMitigate, 0x5100);
-
 	/* Work around for RxFIFO overflow. */
 	if (tp->mac_version == RTL_GIGA_MAC_VER_11) {
 		tp->irq_mask |= RxFIFOOver;
@@ -5749,8 +5736,6 @@ static void rtl_hw_start_8101(struct rtl8169_private *tp)
 		rtl_hw_start_8168h_1(tp);
 		break;
 	}
-
-	RTL_W16(tp, IntrMitigate, 0x0000);
 }
 
 static int rtl8169_change_mtu(struct net_device *dev, int new_mtu)
@@ -6267,7 +6252,7 @@ static netdev_tx_t rtl8169_start_xmit(struct sk_buff *skb,
 		 */
 		smp_mb();
 		if (rtl_tx_slots_avail(tp, MAX_SKB_FRAGS))
-			netif_wake_queue(dev);
+			netif_start_queue(dev);
 	}
 
 	return NETDEV_TX_OK;
@@ -7351,6 +7336,11 @@ static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	rc = rtl_get_ether_clk(tp);
 	if (rc)
 		return rc;
+
+	/* Disable ASPM completely as that cause random device stop working
+	 * problems as well as full system hangs for some PCIe devices users.
+	 */
+	pci_disable_link_state(pdev, PCIE_LINK_STATE_L0S | PCIE_LINK_STATE_L1);
 
 	/* enable device (incl. PCI PM wakeup and hotplug setup) */
 	rc = pcim_enable_device(pdev);
