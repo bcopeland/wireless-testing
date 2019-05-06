@@ -485,7 +485,8 @@ static void u32_clear_hw_hnode(struct tcf_proto *tp, struct tc_u_hnode *h,
 	struct tcf_block *block = tp->chain->block;
 	struct tc_cls_u32_offload cls_u32 = {};
 
-	tc_cls_common_offload_init(&cls_u32.common, tp, h->flags, extack);
+	tc_cls_common_offload_init(&cls_u32.common, tp, h->flags, block,
+				   extack);
 	cls_u32.command = TC_CLSU32_DELETE_HNODE;
 	cls_u32.hnode.divisor = h->divisor;
 	cls_u32.hnode.handle = h->handle;
@@ -503,7 +504,7 @@ static int u32_replace_hw_hnode(struct tcf_proto *tp, struct tc_u_hnode *h,
 	bool offloaded = false;
 	int err;
 
-	tc_cls_common_offload_init(&cls_u32.common, tp, flags, extack);
+	tc_cls_common_offload_init(&cls_u32.common, tp, flags, block, extack);
 	cls_u32.command = TC_CLSU32_NEW_HNODE;
 	cls_u32.hnode.divisor = h->divisor;
 	cls_u32.hnode.handle = h->handle;
@@ -529,7 +530,8 @@ static void u32_remove_hw_knode(struct tcf_proto *tp, struct tc_u_knode *n,
 	struct tcf_block *block = tp->chain->block;
 	struct tc_cls_u32_offload cls_u32 = {};
 
-	tc_cls_common_offload_init(&cls_u32.common, tp, n->flags, extack);
+	tc_cls_common_offload_init(&cls_u32.common, tp, n->flags, block,
+				   extack);
 	cls_u32.command = TC_CLSU32_DELETE_KNODE;
 	cls_u32.knode.handle = n->handle;
 
@@ -546,7 +548,7 @@ static int u32_replace_hw_knode(struct tcf_proto *tp, struct tc_u_knode *n,
 	bool skip_sw = tc_skip_sw(flags);
 	int err;
 
-	tc_cls_common_offload_init(&cls_u32.common, tp, flags, extack);
+	tc_cls_common_offload_init(&cls_u32.common, tp, flags, block, extack);
 	cls_u32.command = TC_CLSU32_REPLACE_KNODE;
 	cls_u32.knode.handle = n->handle;
 	cls_u32.knode.fshift = n->fshift;
@@ -847,7 +849,7 @@ static struct tc_u_knode *u32_init_knode(struct net *net, struct tcf_proto *tp,
 	/* Similarly success statistics must be moved as pointers */
 	new->pcpu_success = n->pcpu_success;
 #endif
-	memcpy(&new->sel, s, sizeof(*s) + s->nkeys*sizeof(struct tc_u32_key));
+	memcpy(&new->sel, s, struct_size(s, keys, s->nkeys));
 
 	if (tcf_exts_init(&new->exts, net, TCA_U32_ACT, TCA_U32_POLICE)) {
 		kfree(new);
@@ -884,7 +886,8 @@ static int u32_change(struct net *net, struct sk_buff *in_skb,
 		}
 	}
 
-	err = nla_parse_nested(tb, TCA_U32_MAX, opt, u32_policy, extack);
+	err = nla_parse_nested_deprecated(tb, TCA_U32_MAX, opt, u32_policy,
+					  extack);
 	if (err < 0)
 		return err;
 
@@ -1169,10 +1172,12 @@ static int u32_reoffload_hnode(struct tcf_proto *tp, struct tc_u_hnode *ht,
 			       bool add, tc_setup_cb_t *cb, void *cb_priv,
 			       struct netlink_ext_ack *extack)
 {
+	struct tcf_block *block = tp->chain->block;
 	struct tc_cls_u32_offload cls_u32 = {};
 	int err;
 
-	tc_cls_common_offload_init(&cls_u32.common, tp, ht->flags, extack);
+	tc_cls_common_offload_init(&cls_u32.common, tp, ht->flags, block,
+				   extack);
 	cls_u32.command = add ? TC_CLSU32_NEW_HNODE : TC_CLSU32_DELETE_HNODE;
 	cls_u32.hnode.divisor = ht->divisor;
 	cls_u32.hnode.handle = ht->handle;
@@ -1194,7 +1199,8 @@ static int u32_reoffload_knode(struct tcf_proto *tp, struct tc_u_knode *n,
 	struct tc_cls_u32_offload cls_u32 = {};
 	int err;
 
-	tc_cls_common_offload_init(&cls_u32.common, tp, n->flags, extack);
+	tc_cls_common_offload_init(&cls_u32.common, tp, n->flags, block,
+				   extack);
 	cls_u32.command = add ?
 		TC_CLSU32_REPLACE_KNODE : TC_CLSU32_DELETE_KNODE;
 	cls_u32.knode.handle = n->handle;
@@ -1294,7 +1300,7 @@ static int u32_dump(struct net *net, struct tcf_proto *tp, void *fh,
 
 	t->tcm_handle = n->handle;
 
-	nest = nla_nest_start(skb, TCA_OPTIONS);
+	nest = nla_nest_start_noflag(skb, TCA_OPTIONS);
 	if (nest == NULL)
 		goto nla_put_failure;
 
