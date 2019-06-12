@@ -201,6 +201,8 @@ enum HCLGE_DEV_STATE {
 	HCLGE_STATE_DOWN,
 	HCLGE_STATE_DISABLED,
 	HCLGE_STATE_REMOVING,
+	HCLGE_STATE_NIC_REGISTERED,
+	HCLGE_STATE_ROCE_REGISTERED,
 	HCLGE_STATE_SERVICE_INITED,
 	HCLGE_STATE_SERVICE_SCHED,
 	HCLGE_STATE_RST_SERVICE_SCHED,
@@ -472,6 +474,7 @@ enum HCLGE_FD_KEY_TYPE {
 enum HCLGE_FD_STAGE {
 	HCLGE_FD_STAGE_1,
 	HCLGE_FD_STAGE_2,
+	MAX_STAGE_NUM,
 };
 
 /* OUTER_XXX indicates tuples in tunnel header of tunnel packet
@@ -526,7 +529,7 @@ enum HCLGE_FD_META_DATA {
 
 struct key_info {
 	u8 key_type;
-	u8 key_length;
+	u8 key_length; /* use bit as unit */
 };
 
 static const struct key_info meta_data_key_info[] = {
@@ -578,6 +581,16 @@ static const struct key_info tuple_key_info[] = {
 #define MAX_KEY_BYTES	(MAX_KEY_DWORDS * 4)
 #define MAX_META_DATA_LENGTH	32
 
+/* assigned by firmware, the real filter number for each pf may be less */
+#define MAX_FD_FILTER_NUM	4096
+#define HCLGE_FD_ARFS_EXPIRE_TIMER_INTERVAL	5
+
+enum HCLGE_FD_ACTIVE_RULE_TYPE {
+	HCLGE_FD_RULE_NONE,
+	HCLGE_FD_ARFS_ACTIVE,
+	HCLGE_FD_EP_ACTIVE,
+};
+
 enum HCLGE_FD_PACKET_TYPE {
 	NIC_PACKET,
 	ROCE_PACKET,
@@ -600,18 +613,23 @@ struct hclge_fd_key_cfg {
 
 struct hclge_fd_cfg {
 	u8 fd_mode;
-	u16 max_key_length;
+	u16 max_key_length; /* use bit as unit */
 	u32 proto_support;
-	u32 rule_num[2]; /* rule entry number */
-	u16 cnt_num[2]; /* rule hit counter number */
-	struct hclge_fd_key_cfg key_cfg[2];
+	u32 rule_num[MAX_STAGE_NUM]; /* rule entry number */
+	u16 cnt_num[MAX_STAGE_NUM]; /* rule hit counter number */
+	struct hclge_fd_key_cfg key_cfg[MAX_STAGE_NUM];
 };
 
+#define IPV4_INDEX	3
+#define IPV6_SIZE	4
 struct hclge_fd_rule_tuples {
-	u8 src_mac[6];
-	u8 dst_mac[6];
-	u32 src_ip[4];
-	u32 dst_ip[4];
+	u8 src_mac[ETH_ALEN];
+	u8 dst_mac[ETH_ALEN];
+	/* Be compatible for ip address of both ipv4 and ipv6.
+	 * For ipv4 address, we store it in src/dst_ip[3].
+	 */
+	u32 src_ip[IPV6_SIZE];
+	u32 dst_ip[IPV6_SIZE];
 	u16 src_port;
 	u16 dst_port;
 	u16 vlan_tag1;
@@ -630,6 +648,8 @@ struct hclge_fd_rule {
 	u16 vf_id;
 	u16 queue_id;
 	u16 location;
+	u16 flow_id;	/* only used for arfs */
+	enum HCLGE_FD_ACTIVE_RULE_TYPE rule_type;
 };
 
 struct hclge_fd_ad_data {
@@ -678,6 +698,8 @@ struct hclge_mac_tnl_stats {
 	u64 time;
 	u32 status;
 };
+
+#define HCLGE_RESET_INTERVAL	(10 * HZ)
 
 /* For each bit of TCAM entry, it uses a pair of 'x' and
  * 'y' to indicate which value to match, like below:
@@ -806,10 +828,15 @@ struct hclge_dev {
 	struct hclge_vlan_type_cfg vlan_type_cfg;
 
 	unsigned long vlan_table[VLAN_N_VID][BITS_TO_LONGS(HCLGE_VPORT_NUM)];
+	unsigned long vf_vlan_full[BITS_TO_LONGS(HCLGE_VPORT_NUM)];
 
 	struct hclge_fd_cfg fd_cfg;
 	struct hlist_head fd_rule_list;
+	spinlock_t fd_rule_lock; /* protect fd_rule_list and fd_bmap */
 	u16 hclge_fd_rule_num;
+	u16 fd_arfs_expire_timer;
+	unsigned long fd_bmap[BITS_TO_LONGS(MAX_FD_FILTER_NUM)];
+	enum HCLGE_FD_ACTIVE_RULE_TYPE fd_active_type;
 	u8 fd_en;
 
 	u16 wanted_umv_size;

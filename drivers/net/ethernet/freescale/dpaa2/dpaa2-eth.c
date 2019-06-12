@@ -555,7 +555,7 @@ static int build_sg_fd(struct dpaa2_eth_priv *priv,
 	/* Prepare the HW SGT structure */
 	sgt_buf_size = priv->tx_data_offset +
 		       sizeof(struct dpaa2_sg_entry) *  num_dma_bufs;
-	sgt_buf = netdev_alloc_frag(sgt_buf_size + DPAA2_ETH_TX_BUF_ALIGN);
+	sgt_buf = napi_alloc_frag(sgt_buf_size + DPAA2_ETH_TX_BUF_ALIGN);
 	if (unlikely(!sgt_buf)) {
 		err = -ENOMEM;
 		goto sgt_buf_alloc_failed;
@@ -997,13 +997,6 @@ static int seed_pool(struct dpaa2_eth_priv *priv, u16 bpid)
 	int i, j;
 	int new_count;
 
-	/* This is the lazy seeding of Rx buffer pools.
-	 * dpaa2_add_bufs() is also used on the Rx hotpath and calls
-	 * napi_alloc_frag(). The trouble with that is that it in turn ends up
-	 * calling this_cpu_ptr(), which mandates execution in atomic context.
-	 * Rather than splitting up the code, do a one-off preempt disable.
-	 */
-	preempt_disable();
 	for (j = 0; j < priv->num_channels; j++) {
 		for (i = 0; i < DPAA2_ETH_NUM_BUFS;
 		     i += DPAA2_ETH_BUFS_PER_CMD) {
@@ -1011,12 +1004,10 @@ static int seed_pool(struct dpaa2_eth_priv *priv, u16 bpid)
 			priv->channel[j]->buf_count += new_count;
 
 			if (new_count < DPAA2_ETH_BUFS_PER_CMD) {
-				preempt_enable();
 				return -ENOMEM;
 			}
 		}
 	}
-	preempt_enable();
 
 	return 0;
 }
@@ -2479,14 +2470,9 @@ static int setup_rx_flow(struct dpaa2_eth_priv *priv,
 	queue.destination.type = DPNI_DEST_DPCON;
 	queue.destination.priority = 1;
 	queue.user_context = (u64)(uintptr_t)fq;
-	queue.flc.stash_control = 1;
-	queue.flc.value &= 0xFFFFFFFFFFFFFFC0;
-	/* 01 01 00 - data, annotation, flow context */
-	queue.flc.value |= 0x14;
 	err = dpni_set_queue(priv->mc_io, 0, priv->mc_token,
 			     DPNI_QUEUE_RX, 0, fq->flowid,
-			     DPNI_QUEUE_OPT_USER_CTX | DPNI_QUEUE_OPT_DEST |
-			     DPNI_QUEUE_OPT_FLC,
+			     DPNI_QUEUE_OPT_USER_CTX | DPNI_QUEUE_OPT_DEST,
 			     &queue);
 	if (err) {
 		dev_err(dev, "dpni_set_queue(RX) failed\n");
