@@ -109,10 +109,8 @@ struct afs_call {
 	struct rxrpc_call	*rxcall;	/* RxRPC call handle */
 	struct key		*key;		/* security for this call */
 	struct afs_net		*net;		/* The network namespace */
-	union {
-		struct afs_server	*server;
-		struct afs_vlserver	*vlserver;
-	};
+	struct afs_server	*server;	/* The fileserver record if fs op (pins ref) */
+	struct afs_vlserver	*vlserver;	/* The vlserver record if vl op */
 	struct afs_cb_interest	*cbi;		/* Callback interest for server used */
 	struct afs_vnode	*lvnode;	/* vnode being locked */
 	void			*request;	/* request data (first part) */
@@ -616,7 +614,7 @@ struct afs_volume {
 	unsigned int		servers_seq;	/* Incremented each time ->servers changes */
 
 	unsigned		cb_v_break;	/* Break-everything counter. */
-	rwlock_t		cb_break_lock;
+	rwlock_t		cb_v_break_lock;
 
 	afs_voltype_t		type;		/* type of volume */
 	short			error;
@@ -718,15 +716,6 @@ struct afs_permits {
 	unsigned short		nr_permits;	/* Number of records */
 	bool			invalidated;	/* Invalidated due to key change */
 	struct afs_permit	permits[];	/* List of permits sorted by key pointer */
-};
-
-/*
- * record of one of a system's set of network interfaces
- */
-struct afs_interface {
-	struct in_addr	address;	/* IPv4 address bound to interface */
-	struct in_addr	netmask;	/* netmask applied to address */
-	unsigned	mtu;		/* MTU of interface */
 };
 
 /*
@@ -1090,12 +1079,6 @@ extern const struct file_operations afs_mntpt_file_operations;
 
 extern struct vfsmount *afs_d_automount(struct path *);
 extern void afs_mntpt_kill_timer(void);
-
-/*
- * netdevices.c
- */
-extern int afs_get_ipv4_interfaces(struct afs_net *, struct afs_interface *,
-				   size_t, bool);
 
 /*
  * proc.c
