@@ -36,6 +36,7 @@
 #include <net/tc_act/tc_sample.h>
 #include <net/tc_act/tc_skbedit.h>
 #include <net/tc_act/tc_ct.h>
+#include <net/tc_act/tc_mpls.h>
 
 extern const struct nla_policy rtm_tca_policy[TCA_MAX + 1];
 
@@ -691,6 +692,8 @@ static void tc_indr_block_ing_cmd(struct tc_indr_block_dev *indr_dev,
 	if (!indr_dev->block)
 		return;
 
+	bo.block = &indr_dev->block->flow_block;
+
 	indr_block_cb->cb(indr_dev->dev, indr_block_cb->cb_priv, TC_SETUP_BLOCK,
 			  &bo);
 	tcf_block_setup(indr_dev->block, &bo);
@@ -775,6 +778,7 @@ static void tc_indr_block_call(struct tcf_block *block, struct net_device *dev,
 		.command	= command,
 		.binder_type	= ei->binder_type,
 		.net		= dev_net(dev),
+		.block		= &block->flow_block,
 		.block_shared	= tcf_block_shared(block),
 		.extack		= extack,
 	};
@@ -810,6 +814,7 @@ static int tcf_block_offload_cmd(struct tcf_block *block,
 	bo.net = dev_net(dev);
 	bo.command = command;
 	bo.binder_type = ei->binder_type;
+	bo.block = &block->flow_block;
 	bo.block_shared = tcf_block_shared(block);
 	bo.extack = extack;
 	INIT_LIST_HEAD(&bo.cb_list);
@@ -987,8 +992,8 @@ static struct tcf_block *tcf_block_create(struct net *net, struct Qdisc *q,
 		return ERR_PTR(-ENOMEM);
 	}
 	mutex_init(&block->lock);
+	flow_block_init(&block->flow_block);
 	INIT_LIST_HEAD(&block->chain_list);
-	INIT_LIST_HEAD(&block->cb_list);
 	INIT_LIST_HEAD(&block->owner_list);
 	INIT_LIST_HEAD(&block->chain0.filter_chain_list);
 
@@ -1514,7 +1519,7 @@ void tcf_block_put(struct tcf_block *block)
 EXPORT_SYMBOL(tcf_block_put);
 
 static int
-tcf_block_playback_offloads(struct tcf_block *block, tc_setup_cb_t *cb,
+tcf_block_playback_offloads(struct tcf_block *block, flow_setup_cb_t *cb,
 			    void *cb_priv, bool add, bool offload_in_use,
 			    struct netlink_ext_ack *extack)
 {
@@ -1570,7 +1575,7 @@ static int tcf_block_bind(struct tcf_block *block,
 
 		i++;
 	}
-	list_splice(&bo->cb_list, &block->cb_list);
+	list_splice(&bo->cb_list, &block->flow_block.cb_list);
 
 	return 0;
 
@@ -2152,7 +2157,9 @@ replay:
 		tfilter_notify(net, skb, n, tp, block, q, parent, fh,
 			       RTM_NEWTFILTER, false, rtnl_held);
 		tfilter_put(tp, fh);
-		q->flags &= ~TCQ_F_CAN_BYPASS;
+		/* q pointer is NULL for shared blocks */
+		if (q)
+			q->flags &= ~TCQ_F_CAN_BYPASS;
 	}
 
 errout:
@@ -3156,7 +3163,7 @@ int tc_setup_cb_call(struct tcf_block *block, enum tc_setup_type type,
 	if (block->nooffloaddevcnt && err_stop)
 		return -EOPNOTSUPP;
 
-	list_for_each_entry(block_cb, &block->cb_list, list) {
+	list_for_each_entry(block_cb, &block->flow_block.cb_list, list) {
 		err = block_cb->cb(type, type_data, block_cb->cb_priv);
 		if (err) {
 			if (err_stop)
@@ -3263,6 +3270,30 @@ int tc_setup_flow_action(struct flow_action *flow_action,
 			entry->id = FLOW_ACTION_CT;
 			entry->ct.action = tcf_ct_action(act);
 			entry->ct.zone = tcf_ct_zone(act);
+		} else if (is_tcf_mpls(act)) {
+			switch (tcf_mpls_action(act)) {
+			case TCA_MPLS_ACT_PUSH:
+				entry->id = FLOW_ACTION_MPLS_PUSH;
+				entry->mpls_push.proto = tcf_mpls_proto(act);
+				entry->mpls_push.label = tcf_mpls_label(act);
+				entry->mpls_push.tc = tcf_mpls_tc(act);
+				entry->mpls_push.bos = tcf_mpls_bos(act);
+				entry->mpls_push.ttl = tcf_mpls_ttl(act);
+				break;
+			case TCA_MPLS_ACT_POP:
+				entry->id = FLOW_ACTION_MPLS_POP;
+				entry->mpls_pop.proto = tcf_mpls_proto(act);
+				break;
+			case TCA_MPLS_ACT_MODIFY:
+				entry->id = FLOW_ACTION_MPLS_MANGLE;
+				entry->mpls_mangle.label = tcf_mpls_label(act);
+				entry->mpls_mangle.tc = tcf_mpls_tc(act);
+				entry->mpls_mangle.bos = tcf_mpls_bos(act);
+				entry->mpls_mangle.ttl = tcf_mpls_ttl(act);
+				break;
+			default:
+				goto err_out;
+			}
 		} else {
 			goto err_out;
 		}

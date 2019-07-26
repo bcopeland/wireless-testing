@@ -61,7 +61,7 @@
 
 /* Maximum number of multicast addresses to filter (vs. Rx-all-multicast).
    The RTL chips use a 64 element hash table based on the Ethernet CRC. */
-static const int multicast_filter_limit = 32;
+#define	MC_FILTER_LIMIT	32
 
 #define TX_DMA_BURST	7	/* Maximum PCI burst, '7' is unlimited */
 #define InterFrameGap	0x03	/* 3 means InterFrameGap = the shortest one */
@@ -3251,9 +3251,9 @@ static void rtl8168g_1_hw_phy_config(struct rtl8169_private *tp)
 
 	ret = phy_read_paged(tp->phydev, 0x0a46, 0x13);
 	if (ret & BIT(8))
-		phy_modify_paged(tp->phydev, 0x0c41, 0x12, 0, BIT(1));
+		phy_modify_paged(tp->phydev, 0x0c41, 0x15, 0, BIT(1));
 	else
-		phy_modify_paged(tp->phydev, 0x0c41, 0x12, BIT(1), 0);
+		phy_modify_paged(tp->phydev, 0x0c41, 0x15, BIT(1), 0);
 
 	/* Enable PHY auto speed down */
 	phy_modify_paged(tp->phydev, 0x0a44, 0x11, 0, BIT(3) | BIT(2));
@@ -4146,54 +4146,46 @@ static void rtl8169_set_magic_reg(struct rtl8169_private *tp, unsigned mac_versi
 
 static void rtl_set_rx_mode(struct net_device *dev)
 {
+	u32 rx_mode = AcceptBroadcast | AcceptMyPhys | AcceptMulticast;
+	/* Multicast hash filter */
+	u32 mc_filter[2] = { 0xffffffff, 0xffffffff };
 	struct rtl8169_private *tp = netdev_priv(dev);
-	u32 mc_filter[2];	/* Multicast hash filter */
-	int rx_mode;
-	u32 tmp = 0;
+	u32 tmp;
 
 	if (dev->flags & IFF_PROMISC) {
 		/* Unconditionally log net taps. */
 		netif_notice(tp, link, dev, "Promiscuous mode enabled\n");
-		rx_mode =
-		    AcceptBroadcast | AcceptMulticast | AcceptMyPhys |
-		    AcceptAllPhys;
-		mc_filter[1] = mc_filter[0] = 0xffffffff;
-	} else if ((netdev_mc_count(dev) > multicast_filter_limit) ||
-		   (dev->flags & IFF_ALLMULTI)) {
-		/* Too many to filter perfectly -- accept all multicasts. */
-		rx_mode = AcceptBroadcast | AcceptMulticast | AcceptMyPhys;
-		mc_filter[1] = mc_filter[0] = 0xffffffff;
+		rx_mode |= AcceptAllPhys;
+	} else if (netdev_mc_count(dev) > MC_FILTER_LIMIT ||
+		   dev->flags & IFF_ALLMULTI ||
+		   tp->mac_version == RTL_GIGA_MAC_VER_35) {
+		/* accept all multicasts */
+	} else if (netdev_mc_empty(dev)) {
+		rx_mode &= ~AcceptMulticast;
 	} else {
 		struct netdev_hw_addr *ha;
 
-		rx_mode = AcceptBroadcast | AcceptMyPhys;
 		mc_filter[1] = mc_filter[0] = 0;
 		netdev_for_each_mc_addr(ha, dev) {
-			int bit_nr = ether_crc(ETH_ALEN, ha->addr) >> 26;
-			mc_filter[bit_nr >> 5] |= 1 << (bit_nr & 31);
-			rx_mode |= AcceptMulticast;
+			u32 bit_nr = ether_crc(ETH_ALEN, ha->addr) >> 26;
+			mc_filter[bit_nr >> 5] |= BIT(bit_nr & 31);
+		}
+
+		if (tp->mac_version > RTL_GIGA_MAC_VER_06) {
+			tmp = mc_filter[0];
+			mc_filter[0] = swab32(mc_filter[1]);
+			mc_filter[1] = swab32(tmp);
 		}
 	}
 
 	if (dev->features & NETIF_F_RXALL)
 		rx_mode |= (AcceptErr | AcceptRunt);
 
-	tmp = (RTL_R32(tp, RxConfig) & ~RX_CONFIG_ACCEPT_MASK) | rx_mode;
-
-	if (tp->mac_version > RTL_GIGA_MAC_VER_06) {
-		u32 data = mc_filter[0];
-
-		mc_filter[0] = swab32(mc_filter[1]);
-		mc_filter[1] = swab32(data);
-	}
-
-	if (tp->mac_version == RTL_GIGA_MAC_VER_35)
-		mc_filter[1] = mc_filter[0] = 0xffffffff;
-
 	RTL_W32(tp, MAR0 + 4, mc_filter[1]);
 	RTL_W32(tp, MAR0 + 0, mc_filter[0]);
 
-	RTL_W32(tp, RxConfig, tmp);
+	tmp = RTL_R32(tp, RxConfig);
+	RTL_W32(tp, RxConfig, (tmp & ~RX_CONFIG_ACCEPT_MASK) | rx_mode);
 }
 
 DECLARE_RTL_COND(rtl_csiar_cond)
@@ -5908,23 +5900,6 @@ static inline void rtl8169_rx_csum(struct sk_buff *skb, u32 opts1)
 		skb_checksum_none_assert(skb);
 }
 
-static struct sk_buff *rtl8169_try_rx_copy(void *data,
-					   struct rtl8169_private *tp,
-					   int pkt_size,
-					   dma_addr_t addr)
-{
-	struct sk_buff *skb;
-	struct device *d = tp_to_dev(tp);
-
-	dma_sync_single_for_cpu(d, addr, pkt_size, DMA_FROM_DEVICE);
-	prefetch(data);
-	skb = napi_alloc_skb(&tp->napi, pkt_size);
-	if (skb)
-		skb_copy_to_linear_data(skb, data, pkt_size);
-
-	return skb;
-}
-
 static int rtl_rx(struct net_device *dev, struct rtl8169_private *tp, u32 budget)
 {
 	unsigned int cur_rx, rx_left;
@@ -5960,17 +5935,13 @@ static int rtl_rx(struct net_device *dev, struct rtl8169_private *tp, u32 budget
 				goto process_pkt;
 			}
 		} else {
+			unsigned int pkt_size;
 			struct sk_buff *skb;
-			dma_addr_t addr;
-			int pkt_size;
 
 process_pkt:
-			addr = le64_to_cpu(desc->addr);
+			pkt_size = status & GENMASK(13, 0);
 			if (likely(!(dev->features & NETIF_F_RXFCS)))
-				pkt_size = (status & 0x00003fff) - 4;
-			else
-				pkt_size = status & 0x00003fff;
-
+				pkt_size -= ETH_FCS_LEN;
 			/*
 			 * The driver does not support incoming fragmented
 			 * frames. They are seen as a symptom of over-mtu
@@ -5982,15 +5953,23 @@ process_pkt:
 				goto release_descriptor;
 			}
 
-			skb = rtl8169_try_rx_copy(tp->Rx_databuff[entry],
-						  tp, pkt_size, addr);
-			if (!skb) {
+			dma_sync_single_for_cpu(tp_to_dev(tp),
+						le64_to_cpu(desc->addr),
+						pkt_size, DMA_FROM_DEVICE);
+
+			skb = napi_alloc_skb(&tp->napi, pkt_size);
+			if (unlikely(!skb)) {
 				dev->stats.rx_dropped++;
 				goto release_descriptor;
 			}
 
+			prefetch(tp->Rx_databuff[entry]);
+			skb_copy_to_linear_data(skb, tp->Rx_databuff[entry],
+						pkt_size);
+			skb->tail += pkt_size;
+			skb->len = pkt_size;
+
 			rtl8169_rx_csum(skb, status);
-			skb_put(skb, pkt_size);
 			skb->protocol = eth_type_trans(skb, dev);
 
 			rtl8169_rx_vlan_tag(desc, skb);
@@ -6334,7 +6313,7 @@ rtl8169_get_stats64(struct net_device *dev, struct rtnl_link_stats64 *stats)
 	stats->multicast	= dev->stats.multicast;
 
 	/*
-	 * Fetch additonal counter values missing in stats collected by driver
+	 * Fetch additional counter values missing in stats collected by driver
 	 * from tally counters.
 	 */
 	if (pm_runtime_active(&pdev->dev))

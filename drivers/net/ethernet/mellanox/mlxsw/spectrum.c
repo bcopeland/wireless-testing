@@ -1604,14 +1604,14 @@ mlxsw_sp_setup_tc_block_flower_bind(struct mlxsw_sp_port *mlxsw_sp_port,
 	bool register_block = false;
 	int err;
 
-	block_cb = flow_block_cb_lookup(f, mlxsw_sp_setup_tc_block_cb_flower,
+	block_cb = flow_block_cb_lookup(f->block,
+					mlxsw_sp_setup_tc_block_cb_flower,
 					mlxsw_sp);
 	if (!block_cb) {
 		acl_block = mlxsw_sp_acl_block_create(mlxsw_sp, f->net);
 		if (!acl_block)
 			return -ENOMEM;
-		block_cb = flow_block_cb_alloc(f->net,
-					       mlxsw_sp_setup_tc_block_cb_flower,
+		block_cb = flow_block_cb_alloc(mlxsw_sp_setup_tc_block_cb_flower,
 					       mlxsw_sp, acl_block,
 					       mlxsw_sp_tc_block_flower_release);
 		if (IS_ERR(block_cb)) {
@@ -1657,7 +1657,8 @@ mlxsw_sp_setup_tc_block_flower_unbind(struct mlxsw_sp_port *mlxsw_sp_port,
 	struct flow_block_cb *block_cb;
 	int err;
 
-	block_cb = flow_block_cb_lookup(f, mlxsw_sp_setup_tc_block_cb_flower,
+	block_cb = flow_block_cb_lookup(f->block,
+					mlxsw_sp_setup_tc_block_cb_flower,
 					mlxsw_sp);
 	if (!block_cb)
 		return;
@@ -1680,7 +1681,7 @@ static int mlxsw_sp_setup_tc_block(struct mlxsw_sp_port *mlxsw_sp_port,
 				   struct flow_block_offload *f)
 {
 	struct flow_block_cb *block_cb;
-	tc_setup_cb_t *cb;
+	flow_setup_cb_t *cb;
 	bool ingress;
 	int err;
 
@@ -1702,7 +1703,7 @@ static int mlxsw_sp_setup_tc_block(struct mlxsw_sp_port *mlxsw_sp_port,
 					  &mlxsw_sp_block_cb_list))
 			return -EBUSY;
 
-		block_cb = flow_block_cb_alloc(f->net, cb, mlxsw_sp_port,
+		block_cb = flow_block_cb_alloc(cb, mlxsw_sp_port,
 					       mlxsw_sp_port, NULL);
 		if (IS_ERR(block_cb))
 			return PTR_ERR(block_cb);
@@ -1718,7 +1719,7 @@ static int mlxsw_sp_setup_tc_block(struct mlxsw_sp_port *mlxsw_sp_port,
 	case FLOW_BLOCK_UNBIND:
 		mlxsw_sp_setup_tc_block_flower_unbind(mlxsw_sp_port,
 						      f, ingress);
-		block_cb = flow_block_cb_lookup(f, cb, mlxsw_sp_port);
+		block_cb = flow_block_cb_lookup(f->block, cb, mlxsw_sp_port);
 		if (!block_cb)
 			return -ENOENT;
 
@@ -5025,6 +5026,26 @@ static int mlxsw_sp1_resources_kvd_register(struct mlxsw_core *mlxsw_core)
 	return 0;
 }
 
+static int mlxsw_sp2_resources_kvd_register(struct mlxsw_core *mlxsw_core)
+{
+	struct devlink *devlink = priv_to_devlink(mlxsw_core);
+	struct devlink_resource_size_params kvd_size_params;
+	u32 kvd_size;
+
+	if (!MLXSW_CORE_RES_VALID(mlxsw_core, KVD_SIZE))
+		return -EIO;
+
+	kvd_size = MLXSW_CORE_RES_GET(mlxsw_core, KVD_SIZE);
+	devlink_resource_size_params_init(&kvd_size_params, kvd_size, kvd_size,
+					  MLXSW_SP_KVD_GRANULARITY,
+					  DEVLINK_RESOURCE_UNIT_ENTRY);
+
+	return devlink_resource_register(devlink, MLXSW_SP_RESOURCE_NAME_KVD,
+					 kvd_size, MLXSW_SP_RESOURCE_KVD,
+					 DEVLINK_RESOURCE_ID_PARENT_TOP,
+					 &kvd_size_params);
+}
+
 static int mlxsw_sp1_resources_register(struct mlxsw_core *mlxsw_core)
 {
 	return mlxsw_sp1_resources_kvd_register(mlxsw_core);
@@ -5032,7 +5053,7 @@ static int mlxsw_sp1_resources_register(struct mlxsw_core *mlxsw_core)
 
 static int mlxsw_sp2_resources_register(struct mlxsw_core *mlxsw_core)
 {
-	return 0;
+	return mlxsw_sp2_resources_kvd_register(mlxsw_core);
 }
 
 static int mlxsw_sp_kvd_sizes_get(struct mlxsw_core *mlxsw_core,
