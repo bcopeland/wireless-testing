@@ -696,7 +696,7 @@ static int mtk_tx_map(struct sk_buff *skb, struct net_device *dev,
 	txd = itxd;
 	nr_frags = skb_shinfo(skb)->nr_frags;
 	for (i = 0; i < nr_frags; i++) {
-		struct skb_frag_struct *frag = &skb_shinfo(skb)->frags[i];
+		skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
 		unsigned int offset = 0;
 		int frag_size = skb_frag_size(frag);
 
@@ -781,13 +781,14 @@ err_dma:
 static inline int mtk_cal_txd_req(struct sk_buff *skb)
 {
 	int i, nfrags;
-	struct skb_frag_struct *frag;
+	skb_frag_t *frag;
 
 	nfrags = 1;
 	if (skb_is_gso(skb)) {
 		for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
 			frag = &skb_shinfo(skb)->frags[i];
-			nfrags += DIV_ROUND_UP(frag->size, MTK_TX_DMA_BUF_LEN);
+			nfrags += DIV_ROUND_UP(skb_frag_size(frag),
+						MTK_TX_DMA_BUF_LEN);
 		}
 	} else {
 		nfrags += skb_shinfo(skb)->nr_frags;
@@ -2446,7 +2447,6 @@ free_netdev:
 
 static int mtk_probe(struct platform_device *pdev)
 {
-	struct resource *res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	struct device_node *mac_np;
 	struct mtk_eth *eth;
 	int err;
@@ -2459,7 +2459,7 @@ static int mtk_probe(struct platform_device *pdev)
 	eth->soc = of_device_get_match_data(&pdev->dev);
 
 	eth->dev = &pdev->dev;
-	eth->base = devm_ioremap_resource(&pdev->dev, res);
+	eth->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(eth->base))
 		return PTR_ERR(eth->base);
 

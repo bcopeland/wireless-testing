@@ -1270,6 +1270,12 @@ static int hclge_configure(struct hclge_dev *hdev)
 
 	hclge_init_kdump_kernel_config(hdev);
 
+	/* Set the init affinity based on pci func number */
+	i = cpumask_weight(cpumask_of_node(dev_to_node(&hdev->pdev->dev)));
+	i = i ? PCI_FUNC(hdev->pdev->devfn) % i : 0;
+	cpumask_set_cpu(cpumask_local_spread(i, dev_to_node(&hdev->pdev->dev)),
+			&hdev->affinity_mask);
+
 	return ret;
 }
 
@@ -2499,22 +2505,29 @@ static void hclge_mbx_task_schedule(struct hclge_dev *hdev)
 {
 	if (!test_bit(HCLGE_STATE_CMD_DISABLE, &hdev->state) &&
 	    !test_and_set_bit(HCLGE_STATE_MBX_SERVICE_SCHED, &hdev->state))
-		schedule_work(&hdev->mbx_service_task);
+		queue_work_on(cpumask_first(&hdev->affinity_mask), system_wq,
+			      &hdev->mbx_service_task);
 }
 
 static void hclge_reset_task_schedule(struct hclge_dev *hdev)
 {
 	if (!test_bit(HCLGE_STATE_REMOVING, &hdev->state) &&
 	    !test_and_set_bit(HCLGE_STATE_RST_SERVICE_SCHED, &hdev->state))
-		schedule_work(&hdev->rst_service_task);
+		queue_work_on(cpumask_first(&hdev->affinity_mask), system_wq,
+			      &hdev->rst_service_task);
 }
 
-static void hclge_task_schedule(struct hclge_dev *hdev)
+void hclge_task_schedule(struct hclge_dev *hdev, unsigned long delay_time)
 {
 	if (!test_bit(HCLGE_STATE_DOWN, &hdev->state) &&
 	    !test_bit(HCLGE_STATE_REMOVING, &hdev->state) &&
-	    !test_and_set_bit(HCLGE_STATE_SERVICE_SCHED, &hdev->state))
-		(void)schedule_work(&hdev->service_task);
+	    !test_and_set_bit(HCLGE_STATE_SERVICE_SCHED, &hdev->state)) {
+		hdev->hw_stats.stats_timer++;
+		hdev->fd_arfs_expire_timer++;
+		mod_delayed_work_on(cpumask_first(&hdev->affinity_mask),
+				    system_wq, &hdev->service_task,
+				    delay_time);
+	}
 }
 
 static int hclge_get_mac_link_status(struct hclge_dev *hdev)
@@ -2729,25 +2742,6 @@ static int hclge_get_status(struct hnae3_handle *handle)
 	return hdev->hw.mac.link;
 }
 
-static void hclge_service_timer(struct timer_list *t)
-{
-	struct hclge_dev *hdev = from_timer(hdev, t, service_timer);
-
-	mod_timer(&hdev->service_timer, jiffies + HZ);
-	hdev->hw_stats.stats_timer++;
-	hdev->fd_arfs_expire_timer++;
-	hclge_task_schedule(hdev);
-}
-
-static void hclge_service_complete(struct hclge_dev *hdev)
-{
-	WARN_ON(!test_bit(HCLGE_STATE_SERVICE_SCHED, &hdev->state));
-
-	/* Flush memory before next watchdog */
-	smp_mb__before_atomic();
-	clear_bit(HCLGE_STATE_SERVICE_SCHED, &hdev->state);
-}
-
 static u32 hclge_check_event_cause(struct hclge_dev *hdev, u32 *clearval)
 {
 	u32 rst_src_reg, cmdq_src_reg, msix_src_reg;
@@ -2882,10 +2876,15 @@ static irqreturn_t hclge_misc_irq_handle(int irq, void *data)
 		break;
 	}
 
-	/* clear the source of interrupt if it is not cause by reset */
+	hclge_clear_event_cause(hdev, event_cause, clearval);
+
+	/* Enable interrupt if it is not cause by reset. And when
+	 * clearval equal to 0, it means interrupt status may be
+	 * cleared by hardware before driver reads status register.
+	 * For this case, vector0 interrupt also should be enabled.
+	 */
 	if (!clearval ||
 	    event_cause == HCLGE_VECTOR0_EVENT_MBX) {
-		hclge_clear_event_cause(hdev, event_cause, clearval);
 		hclge_enable_vector(&hdev->misc_vector, true);
 	}
 
@@ -2916,6 +2915,36 @@ static void hclge_get_misc_vector(struct hclge_dev *hdev)
 
 	hdev->num_msi_left -= 1;
 	hdev->num_msi_used += 1;
+}
+
+static void hclge_irq_affinity_notify(struct irq_affinity_notify *notify,
+				      const cpumask_t *mask)
+{
+	struct hclge_dev *hdev = container_of(notify, struct hclge_dev,
+					      affinity_notify);
+
+	cpumask_copy(&hdev->affinity_mask, mask);
+}
+
+static void hclge_irq_affinity_release(struct kref *ref)
+{
+}
+
+static void hclge_misc_affinity_setup(struct hclge_dev *hdev)
+{
+	irq_set_affinity_hint(hdev->misc_vector.vector_irq,
+			      &hdev->affinity_mask);
+
+	hdev->affinity_notify.notify = hclge_irq_affinity_notify;
+	hdev->affinity_notify.release = hclge_irq_affinity_release;
+	irq_set_affinity_notifier(hdev->misc_vector.vector_irq,
+				  &hdev->affinity_notify);
+}
+
+static void hclge_misc_affinity_teardown(struct hclge_dev *hdev)
+{
+	irq_set_affinity_notifier(hdev->misc_vector.vector_irq, NULL);
+	irq_set_affinity_hint(hdev->misc_vector.vector_irq, NULL);
 }
 
 static int hclge_misc_irq_init(struct hclge_dev *hdev)
@@ -3229,7 +3258,13 @@ static void hclge_clear_reset_cause(struct hclge_dev *hdev)
 	if (!clearval)
 		return;
 
-	hclge_write_dev(&hdev->hw, HCLGE_MISC_RESET_STS_REG, clearval);
+	/* For revision 0x20, the reset interrupt source
+	 * can only be cleared after hardware reset done
+	 */
+	if (hdev->pdev->revision == 0x20)
+		hclge_write_dev(&hdev->hw, HCLGE_MISC_RESET_STS_REG,
+				clearval);
+
 	hclge_enable_vector(&hdev->misc_vector, true);
 }
 
@@ -3248,6 +3283,19 @@ static int hclge_reset_prepare_down(struct hclge_dev *hdev)
 	}
 
 	return ret;
+}
+
+static void hclge_reset_handshake(struct hclge_dev *hdev, bool enable)
+{
+	u32 reg_val;
+
+	reg_val = hclge_read_dev(&hdev->hw, HCLGE_NIC_CSQ_DEPTH_REG);
+	if (enable)
+		reg_val |= HCLGE_NIC_SW_RST_RDY;
+	else
+		reg_val &= ~HCLGE_NIC_SW_RST_RDY;
+
+	hclge_write_dev(&hdev->hw, HCLGE_NIC_CSQ_DEPTH_REG, reg_val);
 }
 
 static int hclge_reset_prepare_wait(struct hclge_dev *hdev)
@@ -3298,14 +3346,13 @@ static int hclge_reset_prepare_wait(struct hclge_dev *hdev)
 
 	/* inform hardware that preparatory work is done */
 	msleep(HCLGE_RESET_SYNC_TIME);
-	hclge_write_dev(&hdev->hw, HCLGE_NIC_CSQ_DEPTH_REG,
-			HCLGE_NIC_CMQ_ENABLE);
+	hclge_reset_handshake(hdev, true);
 	dev_info(&hdev->pdev->dev, "prepare wait ok\n");
 
 	return ret;
 }
 
-static bool hclge_reset_err_handle(struct hclge_dev *hdev, bool is_timeout)
+static bool hclge_reset_err_handle(struct hclge_dev *hdev)
 {
 #define MAX_RESET_FAIL_CNT 5
 
@@ -3322,25 +3369,32 @@ static bool hclge_reset_err_handle(struct hclge_dev *hdev, bool is_timeout)
 		return false;
 	} else if (hdev->reset_fail_cnt < MAX_RESET_FAIL_CNT) {
 		hdev->reset_fail_cnt++;
-		if (is_timeout) {
-			set_bit(hdev->reset_type, &hdev->reset_pending);
-			dev_info(&hdev->pdev->dev,
-				 "re-schedule to wait for hw reset done\n");
-			return true;
-		}
-
-		dev_info(&hdev->pdev->dev, "Upgrade reset level\n");
-		hclge_clear_reset_cause(hdev);
-		set_bit(HNAE3_GLOBAL_RESET, &hdev->default_reset_request);
-		mod_timer(&hdev->reset_timer,
-			  jiffies + HCLGE_RESET_INTERVAL);
-
-		return false;
+		set_bit(hdev->reset_type, &hdev->reset_pending);
+		dev_info(&hdev->pdev->dev,
+			 "re-schedule reset task(%d)\n",
+			 hdev->reset_fail_cnt);
+		return true;
 	}
 
 	hclge_clear_reset_cause(hdev);
+
+	/* recover the handshake status when reset fail */
+	hclge_reset_handshake(hdev, true);
+
 	dev_err(&hdev->pdev->dev, "Reset fail!\n");
 	return false;
+}
+
+static int hclge_set_rst_done(struct hclge_dev *hdev)
+{
+	struct hclge_pf_rst_done_cmd *req;
+	struct hclge_desc desc;
+
+	req = (struct hclge_pf_rst_done_cmd *)desc.data;
+	hclge_cmd_setup_basic_desc(&desc, HCLGE_OPC_PF_RST_DONE, false);
+	req->pf_rst_done |= HCLGE_PF_RESET_DONE_BIT;
+
+	return hclge_cmd_send(&hdev->hw, &desc, 1);
 }
 
 static int hclge_reset_prepare_up(struct hclge_dev *hdev)
@@ -3353,9 +3407,17 @@ static int hclge_reset_prepare_up(struct hclge_dev *hdev)
 	case HNAE3_FLR_RESET:
 		ret = hclge_set_all_vf_rst(hdev, false);
 		break;
+	case HNAE3_GLOBAL_RESET:
+		/* fall through */
+	case HNAE3_IMP_RESET:
+		ret = hclge_set_rst_done(hdev);
+		break;
 	default:
 		break;
 	}
+
+	/* clear up the handshake status after re-initialize done */
+	hclge_reset_handshake(hdev, false);
 
 	return ret;
 }
@@ -3382,7 +3444,6 @@ static int hclge_reset_stack(struct hclge_dev *hdev)
 static void hclge_reset(struct hclge_dev *hdev)
 {
 	struct hnae3_ae_dev *ae_dev = pci_get_drvdata(hdev->pdev);
-	bool is_timeout = false;
 	int ret;
 
 	/* Initialize ae_dev reset status as well, in case enet layer wants to
@@ -3410,10 +3471,8 @@ static void hclge_reset(struct hclge_dev *hdev)
 	if (ret)
 		goto err_reset;
 
-	if (hclge_reset_wait(hdev)) {
-		is_timeout = true;
+	if (hclge_reset_wait(hdev))
 		goto err_reset;
-	}
 
 	hdev->rst_stats.hw_reset_done_cnt++;
 
@@ -3458,14 +3517,22 @@ static void hclge_reset(struct hclge_dev *hdev)
 	hdev->reset_fail_cnt = 0;
 	hdev->rst_stats.reset_done_cnt++;
 	ae_dev->reset_type = HNAE3_NONE_RESET;
-	del_timer(&hdev->reset_timer);
+
+	/* if default_reset_request has a higher level reset request,
+	 * it should be handled as soon as possible. since some errors
+	 * need this kind of reset to fix.
+	 */
+	hdev->reset_level = hclge_get_reset_level(ae_dev,
+						  &hdev->default_reset_request);
+	if (hdev->reset_level != HNAE3_NONE_RESET)
+		set_bit(hdev->reset_level, &hdev->reset_request);
 
 	return;
 
 err_reset_lock:
 	rtnl_unlock();
 err_reset:
-	if (hclge_reset_err_handle(hdev, is_timeout))
+	if (hclge_reset_err_handle(hdev))
 		hclge_reset_task_schedule(hdev);
 }
 
@@ -3493,9 +3560,10 @@ static void hclge_reset_event(struct pci_dev *pdev, struct hnae3_handle *handle)
 		handle = &hdev->vport[0].nic;
 
 	if (time_before(jiffies, (hdev->last_reset_time +
-				  HCLGE_RESET_INTERVAL)))
+				  HCLGE_RESET_INTERVAL))) {
+		mod_timer(&hdev->reset_timer, jiffies + HCLGE_RESET_INTERVAL);
 		return;
-	else if (hdev->default_reset_request)
+	} else if (hdev->default_reset_request)
 		hdev->reset_level =
 			hclge_get_reset_level(ae_dev,
 					      &hdev->default_reset_request);
@@ -3524,6 +3592,12 @@ static void hclge_set_def_reset_request(struct hnae3_ae_dev *ae_dev,
 static void hclge_reset_timer(struct timer_list *t)
 {
 	struct hclge_dev *hdev = from_timer(hdev, t, reset_timer);
+
+	/* if default_reset_request has no value, it means that this reset
+	 * request has already be handled, so just return here
+	 */
+	if (!hdev->default_reset_request)
+		return;
 
 	dev_info(&hdev->pdev->dev,
 		 "triggering reset in reset timer\n");
@@ -3606,7 +3680,9 @@ static void hclge_update_vport_alive(struct hclge_dev *hdev)
 static void hclge_service_task(struct work_struct *work)
 {
 	struct hclge_dev *hdev =
-		container_of(work, struct hclge_dev, service_task);
+		container_of(work, struct hclge_dev, service_task.work);
+
+	clear_bit(HCLGE_STATE_SERVICE_SCHED, &hdev->state);
 
 	if (hdev->hw_stats.stats_timer >= HCLGE_STATS_TIMER_INTERVAL) {
 		hclge_update_stats_for_all(hdev);
@@ -3621,7 +3697,8 @@ static void hclge_service_task(struct work_struct *work)
 		hclge_rfs_filter_expire(hdev);
 		hdev->fd_arfs_expire_timer = 0;
 	}
-	hclge_service_complete(hdev);
+
+	hclge_task_schedule(hdev, round_jiffies_relative(HZ));
 }
 
 struct hclge_vport *hclge_get_vport(struct hnae3_handle *handle)
@@ -5808,7 +5885,7 @@ static int hclge_add_fd_entry_by_arfs(struct hnae3_handle *handle, u16 queue_id,
 			return -ENOSPC;
 		}
 
-		rule = kzalloc(sizeof(*rule), GFP_KERNEL);
+		rule = kzalloc(sizeof(*rule), GFP_ATOMIC);
 		if (!rule) {
 			spin_unlock_bh(&hdev->fd_rule_lock);
 
@@ -6160,10 +6237,13 @@ static void hclge_set_timer_task(struct hnae3_handle *handle, bool enable)
 	struct hclge_dev *hdev = vport->back;
 
 	if (enable) {
-		mod_timer(&hdev->service_timer, jiffies + HZ);
+		hclge_task_schedule(hdev, round_jiffies_relative(HZ));
 	} else {
-		del_timer_sync(&hdev->service_timer);
-		cancel_work_sync(&hdev->service_task);
+		/* Set the DOWN flag here to disable the service to be
+		 * scheduled again
+		 */
+		set_bit(HCLGE_STATE_DOWN, &hdev->state);
+		cancel_delayed_work_sync(&hdev->service_task);
 		clear_bit(HCLGE_STATE_SERVICE_SCHED, &hdev->state);
 	}
 }
@@ -6202,6 +6282,7 @@ static void hclge_ae_stop(struct hnae3_handle *handle)
 	if (test_bit(HCLGE_STATE_RST_HANDLING, &hdev->state) &&
 	    hdev->reset_type != HNAE3_FUNC_RESET) {
 		hclge_mac_stop_phy(hdev);
+		hclge_update_link_status(hdev);
 		return;
 	}
 
@@ -6249,7 +6330,6 @@ static int hclge_get_mac_vlan_cmd_status(struct hclge_vport *vport,
 					 enum hclge_mac_vlan_tbl_opcode op)
 {
 	struct hclge_dev *hdev = vport->back;
-	int return_status = -EIO;
 
 	if (cmdq_resp) {
 		dev_err(&hdev->pdev->dev,
@@ -6260,52 +6340,53 @@ static int hclge_get_mac_vlan_cmd_status(struct hclge_vport *vport,
 
 	if (op == HCLGE_MAC_VLAN_ADD) {
 		if ((!resp_code) || (resp_code == 1)) {
-			return_status = 0;
+			return 0;
 		} else if (resp_code == HCLGE_ADD_UC_OVERFLOW) {
-			return_status = -ENOSPC;
 			dev_err(&hdev->pdev->dev,
 				"add mac addr failed for uc_overflow.\n");
+			return -ENOSPC;
 		} else if (resp_code == HCLGE_ADD_MC_OVERFLOW) {
-			return_status = -ENOSPC;
 			dev_err(&hdev->pdev->dev,
 				"add mac addr failed for mc_overflow.\n");
-		} else {
-			dev_err(&hdev->pdev->dev,
-				"add mac addr failed for undefined, code=%d.\n",
-				resp_code);
+			return -ENOSPC;
 		}
+
+		dev_err(&hdev->pdev->dev,
+			"add mac addr failed for undefined, code=%u.\n",
+			resp_code);
+		return -EIO;
 	} else if (op == HCLGE_MAC_VLAN_REMOVE) {
 		if (!resp_code) {
-			return_status = 0;
+			return 0;
 		} else if (resp_code == 1) {
-			return_status = -ENOENT;
 			dev_dbg(&hdev->pdev->dev,
 				"remove mac addr failed for miss.\n");
-		} else {
-			dev_err(&hdev->pdev->dev,
-				"remove mac addr failed for undefined, code=%d.\n",
-				resp_code);
+			return -ENOENT;
 		}
+
+		dev_err(&hdev->pdev->dev,
+			"remove mac addr failed for undefined, code=%u.\n",
+			resp_code);
+		return -EIO;
 	} else if (op == HCLGE_MAC_VLAN_LKUP) {
 		if (!resp_code) {
-			return_status = 0;
+			return 0;
 		} else if (resp_code == 1) {
-			return_status = -ENOENT;
 			dev_dbg(&hdev->pdev->dev,
 				"lookup mac addr failed for miss.\n");
-		} else {
-			dev_err(&hdev->pdev->dev,
-				"lookup mac addr failed for undefined, code=%d.\n",
-				resp_code);
+			return -ENOENT;
 		}
-	} else {
-		return_status = -EINVAL;
+
 		dev_err(&hdev->pdev->dev,
-			"unknown opcode for get_mac_vlan_cmd_status,opcode=%d.\n",
-			op);
+			"lookup mac addr failed for undefined, code=%u.\n",
+			resp_code);
+		return -EIO;
 	}
 
-	return return_status;
+	dev_err(&hdev->pdev->dev,
+		"unknown opcode for get_mac_vlan_cmd_status, opcode=%d.\n", op);
+
+	return -EINVAL;
 }
 
 static int hclge_update_desc_vfid(struct hclge_desc *desc, int vfid, bool clr)
@@ -8602,12 +8683,10 @@ static void hclge_state_uninit(struct hclge_dev *hdev)
 	set_bit(HCLGE_STATE_DOWN, &hdev->state);
 	set_bit(HCLGE_STATE_REMOVING, &hdev->state);
 
-	if (hdev->service_timer.function)
-		del_timer_sync(&hdev->service_timer);
 	if (hdev->reset_timer.function)
 		del_timer_sync(&hdev->reset_timer);
-	if (hdev->service_task.func)
-		cancel_work_sync(&hdev->service_task);
+	if (hdev->service_task.work.func)
+		cancel_delayed_work_sync(&hdev->service_task);
 	if (hdev->rst_service_task.func)
 		cancel_work_sync(&hdev->rst_service_task);
 	if (hdev->mbx_service_task.func)
@@ -8812,11 +8891,15 @@ static int hclge_init_ae_dev(struct hnae3_ae_dev *ae_dev)
 
 	hclge_dcb_ops_set(hdev);
 
-	timer_setup(&hdev->service_timer, hclge_service_timer, 0);
 	timer_setup(&hdev->reset_timer, hclge_reset_timer, 0);
-	INIT_WORK(&hdev->service_task, hclge_service_task);
+	INIT_DELAYED_WORK(&hdev->service_task, hclge_service_task);
 	INIT_WORK(&hdev->rst_service_task, hclge_reset_service_task);
 	INIT_WORK(&hdev->mbx_service_task, hclge_mailbox_service_task);
+
+	/* Setup affinity after service timer setup because add_timer_on
+	 * is called in affinity notify.
+	 */
+	hclge_misc_affinity_setup(hdev);
 
 	hclge_clear_all_event_cause(hdev);
 	hclge_clear_resetting_state(hdev);
@@ -8842,7 +8925,9 @@ static int hclge_init_ae_dev(struct hnae3_ae_dev *ae_dev)
 	hclge_state_init(hdev);
 	hdev->last_reset_time = jiffies;
 
-	pr_info("%s driver initialization finished.\n", HCLGE_DRIVER_NAME);
+	dev_info(&hdev->pdev->dev, "%s driver initialization finished.\n",
+		 HCLGE_DRIVER_NAME);
+
 	return 0;
 
 err_mdiobus_unreg:
@@ -8979,6 +9064,7 @@ static void hclge_uninit_ae_dev(struct hnae3_ae_dev *ae_dev)
 	struct hclge_dev *hdev = ae_dev->priv;
 	struct hclge_mac *mac = &hdev->hw.mac;
 
+	hclge_misc_affinity_teardown(hdev);
 	hclge_state_uninit(hdev);
 
 	if (mac->phydev)
