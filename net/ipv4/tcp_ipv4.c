@@ -121,11 +121,9 @@ int tcp_twsk_unique(struct sock *sk, struct sock *sktw, void *twp)
 #if IS_ENABLED(CONFIG_IPV6)
 		if (tw->tw_family == AF_INET6) {
 			if (ipv6_addr_loopback(&tw->tw_v6_daddr) ||
-			    (ipv6_addr_v4mapped(&tw->tw_v6_daddr) &&
-			     (tw->tw_v6_daddr.s6_addr[12] == 127)) ||
+			    ipv6_addr_v4mapped_loopback(&tw->tw_v6_daddr) ||
 			    ipv6_addr_loopback(&tw->tw_v6_rcv_saddr) ||
-			    (ipv6_addr_v4mapped(&tw->tw_v6_rcv_saddr) &&
-			     (tw->tw_v6_rcv_saddr.s6_addr[12] == 127)))
+			    ipv6_addr_v4mapped_loopback(&tw->tw_v6_rcv_saddr))
 				loopback = true;
 		} else
 #endif
@@ -1916,7 +1914,7 @@ process:
 	if (tcp_v4_inbound_md5_hash(sk, skb))
 		goto discard_and_relse;
 
-	nf_reset(skb);
+	nf_reset_ct(skb);
 
 	if (tcp_filter(sk, skb))
 		goto discard_and_relse;
