@@ -95,6 +95,8 @@ static irqreturn_t ocelot_xtr_irq_handler(int irq, void *arg)
 
 	do {
 		struct skb_shared_hwtstamps *shhwtstamps;
+		struct ocelot_port_private *priv;
+		struct ocelot_port *ocelot_port;
 		u64 tod_in_ns, full_ts_in_ns;
 		struct frame_info info = {};
 		struct net_device *dev;
@@ -114,7 +116,10 @@ static irqreturn_t ocelot_xtr_irq_handler(int irq, void *arg)
 
 		ocelot_parse_ifh(ifh, &info);
 
-		dev = ocelot->ports[info.port]->dev;
+		ocelot_port = ocelot->ports[info.port];
+		priv = container_of(ocelot_port, struct ocelot_port_private,
+				    port);
+		dev = priv->dev;
 
 		skb = netdev_alloc_skb(dev, info.len);
 
@@ -359,17 +364,20 @@ static int mscc_ocelot_probe(struct platform_device *pdev)
 	ocelot->ports = devm_kcalloc(&pdev->dev, ocelot->num_phys_ports,
 				     sizeof(struct ocelot_port *), GFP_KERNEL);
 
-	INIT_LIST_HEAD(&ocelot->multicast);
 	ocelot_init(ocelot);
+	ocelot_set_cpu_port(ocelot, ocelot->num_phys_ports,
+			    OCELOT_TAG_PREFIX_NONE, OCELOT_TAG_PREFIX_NONE);
 
 	for_each_available_child_of_node(ports, portnp) {
+		struct ocelot_port_private *priv;
+		struct ocelot_port *ocelot_port;
 		struct device_node *phy_node;
+		phy_interface_t phy_mode;
 		struct phy_device *phy;
 		struct resource *res;
 		struct phy *serdes;
 		void __iomem *regs;
 		char res_name[8];
-		int phy_mode;
 		u32 port;
 
 		if (of_property_read_u32(portnp, "reg", &port))
@@ -398,13 +406,17 @@ static int mscc_ocelot_probe(struct platform_device *pdev)
 			goto out_put_ports;
 		}
 
-		phy_mode = of_get_phy_mode(portnp);
-		if (phy_mode < 0)
-			ocelot->ports[port]->phy_mode = PHY_INTERFACE_MODE_NA;
-		else
-			ocelot->ports[port]->phy_mode = phy_mode;
+		ocelot_port = ocelot->ports[port];
+		priv = container_of(ocelot_port, struct ocelot_port_private,
+				    port);
 
-		switch (ocelot->ports[port]->phy_mode) {
+		err = of_get_phy_mode(portnp, &phy_mode);
+		if (err && err != -ENODEV)
+			goto out_put_ports;
+
+		priv->phy_mode = phy_mode;
+
+		switch (priv->phy_mode) {
 		case PHY_INTERFACE_MODE_NA:
 			continue;
 		case PHY_INTERFACE_MODE_SGMII:
@@ -413,7 +425,7 @@ static int mscc_ocelot_probe(struct platform_device *pdev)
 			/* Ensure clock signals and speed is set on all
 			 * QSGMII links
 			 */
-			ocelot_port_writel(ocelot->ports[port],
+			ocelot_port_writel(ocelot_port,
 					   DEV_CLOCK_CFG_LINK_SPEED
 					   (OCELOT_SPEED_1000),
 					   DEV_CLOCK_CFG);
@@ -441,7 +453,7 @@ static int mscc_ocelot_probe(struct platform_device *pdev)
 			goto out_put_ports;
 		}
 
-		ocelot->ports[port]->serdes = serdes;
+		priv->serdes = serdes;
 	}
 
 	register_netdevice_notifier(&ocelot_netdevice_nb);
