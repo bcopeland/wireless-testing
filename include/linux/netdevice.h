@@ -849,6 +849,7 @@ enum tc_setup_type {
 	TC_SETUP_QDISC_GRED,
 	TC_SETUP_QDISC_TAPRIO,
 	TC_SETUP_FT,
+	TC_SETUP_QDISC_ETS,
 };
 
 /* These structures hold the attributes of bpf state that are being passed
@@ -1014,7 +1015,7 @@ int netdev_name_node_alt_destroy(struct net_device *dev, const char *name);
  *	Called when a user wants to change the Maximum Transfer Unit
  *	of a device.
  *
- * void (*ndo_tx_timeout)(struct net_device *dev);
+ * void (*ndo_tx_timeout)(struct net_device *dev, unsigned int txqueue);
  *	Callback used when the transmitter has not made any progress
  *	for dev->watchdog ticks.
  *
@@ -1281,7 +1282,8 @@ struct net_device_ops {
 						  int new_mtu);
 	int			(*ndo_neigh_setup)(struct net_device *dev,
 						   struct neigh_parms *);
-	void			(*ndo_tx_timeout) (struct net_device *dev);
+	void			(*ndo_tx_timeout) (struct net_device *dev,
+						   unsigned int txqueue);
 
 	void			(*ndo_get_stats64)(struct net_device *dev,
 						   struct rtnl_link_stats64 *storage);
