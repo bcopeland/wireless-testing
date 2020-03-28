@@ -621,7 +621,7 @@ static inline void mlxsw_reg_sfn_pack(char *payload)
 {
 	MLXSW_REG_ZERO(sfn, payload);
 	mlxsw_reg_sfn_swid_set(payload, 0);
-	mlxsw_reg_sfn_end_set(payload, 1);
+	mlxsw_reg_sfn_end_set(payload, 0);
 	mlxsw_reg_sfn_num_rec_set(payload, MLXSW_REG_SFN_REC_MAX_COUNT);
 }
 
@@ -3572,7 +3572,7 @@ MLXSW_ITEM32(reg, qeec, mase, 0x10, 31, 1);
  * When in bytes mode, value is specified in units of 1000bps.
  * Access: RW
  */
-MLXSW_ITEM32(reg, qeec, max_shaper_rate, 0x10, 0, 28);
+MLXSW_ITEM32(reg, qeec, max_shaper_rate, 0x10, 0, 31);
 
 /* reg_qeec_de
  * DWRR configuration enable. Enables configuration of the dwrr and
@@ -5440,15 +5440,29 @@ enum mlxsw_reg_pmtm_module_type {
 	/* Backplane with 4 lanes */
 	MLXSW_REG_PMTM_MODULE_TYPE_BP_4X,
 	/* QSFP */
-	MLXSW_REG_PMTM_MODULE_TYPE_BP_QSFP,
+	MLXSW_REG_PMTM_MODULE_TYPE_QSFP,
 	/* SFP */
-	MLXSW_REG_PMTM_MODULE_TYPE_BP_SFP,
+	MLXSW_REG_PMTM_MODULE_TYPE_SFP,
 	/* Backplane with single lane */
 	MLXSW_REG_PMTM_MODULE_TYPE_BP_1X = 4,
 	/* Backplane with two lane */
 	MLXSW_REG_PMTM_MODULE_TYPE_BP_2X = 8,
-	/* Chip2Chip */
-	MLXSW_REG_PMTM_MODULE_TYPE_C2C = 10,
+	/* Chip2Chip4x */
+	MLXSW_REG_PMTM_MODULE_TYPE_C2C4X = 10,
+	/* Chip2Chip2x */
+	MLXSW_REG_PMTM_MODULE_TYPE_C2C2X,
+	/* Chip2Chip1x */
+	MLXSW_REG_PMTM_MODULE_TYPE_C2C1X,
+	/* QSFP-DD */
+	MLXSW_REG_PMTM_MODULE_TYPE_QSFP_DD = 14,
+	/* OSFP */
+	MLXSW_REG_PMTM_MODULE_TYPE_OSFP,
+	/* SFP-DD */
+	MLXSW_REG_PMTM_MODULE_TYPE_SFP_DD,
+	/* DSFP */
+	MLXSW_REG_PMTM_MODULE_TYPE_DSFP,
+	/* Chip2Chip8x */
+	MLXSW_REG_PMTM_MODULE_TYPE_C2C8X,
 };
 
 /* reg_pmtm_module_type
@@ -5526,9 +5540,11 @@ enum mlxsw_reg_htgt_trap_group {
 
 enum mlxsw_reg_htgt_discard_trap_group {
 	MLXSW_REG_HTGT_DISCARD_TRAP_GROUP_BASE = MLXSW_REG_HTGT_TRAP_GROUP_MAX,
+	MLXSW_REG_HTGT_TRAP_GROUP_SP_DUMMY,
 	MLXSW_REG_HTGT_TRAP_GROUP_SP_L2_DISCARDS,
 	MLXSW_REG_HTGT_TRAP_GROUP_SP_L3_DISCARDS,
 	MLXSW_REG_HTGT_TRAP_GROUP_SP_TUNNEL_DISCARDS,
+	MLXSW_REG_HTGT_TRAP_GROUP_SP_ACL_DISCARDS,
 };
 
 /* reg_htgt_trap_group

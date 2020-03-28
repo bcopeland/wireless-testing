@@ -4516,7 +4516,7 @@ static u32 netif_receive_generic_xdp(struct sk_buff *skb,
 	/* Reinjected packets coming from act_mirred or similar should
 	 * not get XDP generic processing.
 	 */
-	if (skb_is_tc_redirected(skb))
+	if (skb_is_redirected(skb))
 		return XDP_PASS;
 
 	/* XDP packets must be linear and must have sufficient headroom
@@ -4638,7 +4638,6 @@ void generic_xdp_tx(struct sk_buff *skb, struct bpf_prog *xdp_prog)
 		kfree_skb(skb);
 	}
 }
-EXPORT_SYMBOL_GPL(generic_xdp_tx);
 
 static DEFINE_STATIC_KEY_FALSE(generic_xdp_needed_key);
 
@@ -4849,7 +4848,8 @@ sch_handle_ingress(struct sk_buff *skb, struct packet_type **pt_prev, int *ret,
 	skb->tc_at_ingress = 1;
 	mini_qdisc_bstats_cpu_update(miniq, skb);
 
-	switch (tcf_classify(skb, miniq->filter_list, &cl_res, false)) {
+	switch (tcf_classify_ingress(skb, miniq->block, miniq->filter_list,
+				     &cl_res, false)) {
 	case TC_ACT_OK:
 	case TC_ACT_RECLASSIFY:
 		skb->tc_index = TC_H_MIN(cl_res.classid);
@@ -5063,7 +5063,7 @@ skip_taps:
 			goto out;
 	}
 #endif
-	skb_reset_tc(skb);
+	skb_reset_redirect(skb);
 skip_classify:
 	if (pfmemalloc && !skb_pfmemalloc_protocol(skb))
 		goto drop;
@@ -5195,7 +5195,7 @@ static int __netif_receive_skb_one_core(struct sk_buff *skb, bool pfmemalloc)
  *
  *	More direct receive version of netif_receive_skb().  It should
  *	only be used by callers that have a need to skip RPS and Generic XDP.
- *	Caller must also take care of handling if (page_is_)pfmemalloc.
+ *	Caller must also take care of handling if ``(page_is_)pfmemalloc``.
  *
  *	This function may only be called from softirq context and interrupts
  *	should be enabled.
@@ -9283,6 +9283,10 @@ int register_netdevice(struct net_device *dev)
 	BUG_ON(dev->reg_state != NETREG_UNINITIALIZED);
 	BUG_ON(!net);
 
+	ret = ethtool_check_ops(dev->ethtool_ops);
+	if (ret)
+		return ret;
+
 	spin_lock_init(&dev->addr_list_lock);
 	lockdep_set_class(&dev->addr_list_lock, &dev->addr_list_lock_key);
 
@@ -10006,6 +10010,7 @@ EXPORT_SYMBOL(unregister_netdev);
 
 int dev_change_net_namespace(struct net_device *dev, struct net *net, const char *pat)
 {
+	struct net *net_old = dev_net(dev);
 	int err, new_nsid, new_ifindex;
 
 	ASSERT_RTNL();
@@ -10021,7 +10026,7 @@ int dev_change_net_namespace(struct net_device *dev, struct net *net, const char
 
 	/* Get out if there is nothing todo */
 	err = 0;
-	if (net_eq(dev_net(dev), net))
+	if (net_eq(net_old, net))
 		goto out;
 
 	/* Pick the destination device name, and ensure
@@ -10095,6 +10100,12 @@ int dev_change_net_namespace(struct net_device *dev, struct net *net, const char
 
 	/* Fixup kobjects */
 	err = device_rename(&dev->dev, dev->name);
+	WARN_ON(err);
+
+	/* Adapt owner in case owning user namespace of target network
+	 * namespace is different from the original one.
+	 */
+	err = netdev_change_owner(dev, net_old, net);
 	WARN_ON(err);
 
 	/* Add the device back in the hashes */
