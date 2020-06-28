@@ -449,7 +449,7 @@ static int set_rxmode(struct net_device *dev, int mtu, bool sleep_ok)
  *		   or -1
  *	@addr: the new MAC address value
  *	@persist: whether a new MAC allocation should be persistent
- *	@add_smt: if true also add the address to the HW SMT
+ *	@smt_idx: the destination to store the new SMT index.
  *
  *	Modifies an MPS filter and sets it to the new MAC address if
  *	@tcam_idx >= 0, or adds the MAC address to a new filter if
@@ -1615,6 +1615,7 @@ static int tid_init(struct tid_info *t)
  *	@stid: the server TID
  *	@sip: local IP address to bind server to
  *	@sport: the server's TCP port
+ *	@vlan: the VLAN header information
  *	@queue: queue to direct messages from this server to
  *
  *	Create an IP server for the given port and address.
@@ -2609,7 +2610,7 @@ int cxgb4_create_server_filter(const struct net_device *dev, unsigned int stid,
 
 	/* Clear out filter specifications */
 	memset(&f->fs, 0, sizeof(struct ch_filter_specification));
-	f->fs.val.lport = cpu_to_be16(sport);
+	f->fs.val.lport = be16_to_cpu(sport);
 	f->fs.mask.lport  = ~0;
 	val = (u8 *)&sip;
 	if ((val[0] | val[1] | val[2] | val[3]) != 0) {
@@ -4146,9 +4147,10 @@ static int adap_init0_phy(struct adapter *adap)
 
 	/* Load PHY Firmware onto adapter.
 	 */
-	ret = t4_load_phy_fw(adap, MEMWIN_NIC, &adap->win0_lock,
-			     phy_info->phy_fw_version,
+	spin_lock_bh(&adap->win0_lock);
+	ret = t4_load_phy_fw(adap, MEMWIN_NIC, phy_info->phy_fw_version,
 			     (u8 *)phyf->data, phyf->size);
+	spin_unlock_bh(&adap->win0_lock);
 	if (ret < 0)
 		dev_err(adap->pdev_dev, "PHY Firmware transfer error %d\n",
 			-ret);
@@ -5377,10 +5379,10 @@ static inline bool is_x_10g_port(const struct link_config *lc)
 static int cfg_queues(struct adapter *adap)
 {
 	u32 avail_qsets, avail_eth_qsets, avail_uld_qsets;
-	u32 i, n10g = 0, qidx = 0, n1g = 0;
 	u32 ncpus = num_online_cpus();
 	u32 niqflint, neq, num_ulds;
 	struct sge *s = &adap->sge;
+	u32 i, n10g = 0, qidx = 0;
 	u32 q10g = 0, q1g;
 
 	/* Reduce memory usage in kdump environment, disable all offload. */
@@ -5426,7 +5428,6 @@ static int cfg_queues(struct adapter *adap)
 	if (n10g)
 		q10g = (avail_eth_qsets - (adap->params.nports - n10g)) / n10g;
 
-	n1g = adap->params.nports - n10g;
 #ifdef CONFIG_CHELSIO_T4_DCB
 	/* For Data Center Bridging support we need to be able to support up
 	 * to 8 Traffic Priorities; each of which will be assigned to its
@@ -5444,7 +5445,8 @@ static int cfg_queues(struct adapter *adap)
 	else
 		q10g = max(8U, q10g);
 
-	while ((q10g * n10g) > (avail_eth_qsets - n1g * q1g))
+	while ((q10g * n10g) >
+	       (avail_eth_qsets - (adap->params.nports - n10g) * q1g))
 		q10g--;
 
 #else /* !CONFIG_CHELSIO_T4_DCB */
@@ -5860,6 +5862,7 @@ static void free_some_resources(struct adapter *adapter)
 	cxgb4_cleanup_tc_mqprio(adapter);
 	cxgb4_cleanup_tc_flower(adapter);
 	cxgb4_cleanup_tc_u32(adapter);
+	cxgb4_cleanup_ethtool_filters(adapter);
 	kfree(adapter->sge.egr_map);
 	kfree(adapter->sge.ingr_map);
 	kfree(adapter->sge.starving_fl);
@@ -6370,7 +6373,7 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 			NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
 			NETIF_F_RXCSUM | NETIF_F_RXHASH | NETIF_F_GRO |
 			NETIF_F_HW_VLAN_CTAG_TX | NETIF_F_HW_VLAN_CTAG_RX |
-			NETIF_F_HW_TC;
+			NETIF_F_HW_TC | NETIF_F_NTUPLE;
 
 		if (chip_ver > CHELSIO_T5) {
 			netdev->hw_enc_features |= NETIF_F_IP_CSUM |
@@ -6493,6 +6496,24 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 				 i);
 	}
 
+	if (is_offload(adapter) || is_hashfilter(adapter)) {
+		if (t4_read_reg(adapter, LE_DB_CONFIG_A) & HASHEN_F) {
+			u32 v;
+
+			v = t4_read_reg(adapter, LE_DB_HASH_CONFIG_A);
+			if (chip_ver <= CHELSIO_T5) {
+				adapter->tids.nhash = 1 << HASHTIDSIZE_G(v);
+				v = t4_read_reg(adapter, LE_DB_TID_HASHBASE_A);
+				adapter->tids.hash_base = v / 4;
+			} else {
+				adapter->tids.nhash = HASHTBLSIZE_G(v) << 3;
+				v = t4_read_reg(adapter,
+						T6_LE_DB_HASH_TID_BASE_A);
+				adapter->tids.hash_base = v;
+			}
+		}
+	}
+
 	if (tid_init(&adapter->tids) < 0) {
 		dev_warn(&pdev->dev, "could not allocate TID table, "
 			 "continuing\n");
@@ -6514,22 +6535,9 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		if (cxgb4_init_tc_matchall(adapter))
 			dev_warn(&pdev->dev,
 				 "could not offload tc matchall, continuing\n");
-	}
-
-	if (is_offload(adapter) || is_hashfilter(adapter)) {
-		if (t4_read_reg(adapter, LE_DB_CONFIG_A) & HASHEN_F) {
-			u32 hash_base, hash_reg;
-
-			if (chip_ver <= CHELSIO_T5) {
-				hash_reg = LE_DB_TID_HASHBASE_A;
-				hash_base = t4_read_reg(adapter, hash_reg);
-				adapter->tids.hash_base = hash_base / 4;
-			} else {
-				hash_reg = T6_LE_DB_HASH_TID_BASE_A;
-				hash_base = t4_read_reg(adapter, hash_reg);
-				adapter->tids.hash_base = hash_base;
-			}
-		}
+		if (cxgb4_init_ethtool_filters(adapter))
+			dev_warn(&pdev->dev,
+				 "could not initialize ethtool filters, continuing\n");
 	}
 
 	/* See what interrupts we'll be using */

@@ -429,7 +429,8 @@ static void phylink_mac_config_up(struct phylink *pl,
 static void phylink_mac_pcs_an_restart(struct phylink *pl)
 {
 	if (pl->link_config.an_enabled &&
-	    phy_interface_mode_is_8023z(pl->link_config.interface)) {
+	    phy_interface_mode_is_8023z(pl->link_config.interface) &&
+	    phylink_autoneg_inband(pl->cur_link_an_mode)) {
 		if (pl->pcs_ops)
 			pl->pcs_ops->pcs_an_restart(pl->config);
 		else
@@ -1463,6 +1464,8 @@ int phylink_ethtool_set_pauseparam(struct phylink *pl,
 				   struct ethtool_pauseparam *pause)
 {
 	struct phylink_link_state *config = &pl->link_config;
+	bool manual_changed;
+	int pause_state;
 
 	ASSERT_RTNL();
 
@@ -1477,15 +1480,15 @@ int phylink_ethtool_set_pauseparam(struct phylink *pl,
 	    !pause->autoneg && pause->rx_pause != pause->tx_pause)
 		return -EINVAL;
 
-	mutex_lock(&pl->state_mutex);
-	config->pause = 0;
+	pause_state = 0;
 	if (pause->autoneg)
-		config->pause |= MLO_PAUSE_AN;
+		pause_state |= MLO_PAUSE_AN;
 	if (pause->rx_pause)
-		config->pause |= MLO_PAUSE_RX;
+		pause_state |= MLO_PAUSE_RX;
 	if (pause->tx_pause)
-		config->pause |= MLO_PAUSE_TX;
+		pause_state |= MLO_PAUSE_TX;
 
+	mutex_lock(&pl->state_mutex);
 	/*
 	 * See the comments for linkmode_set_pause(), wrt the deficiencies
 	 * with the current implementation.  A solution to this issue would
@@ -1502,18 +1505,35 @@ int phylink_ethtool_set_pauseparam(struct phylink *pl,
 	linkmode_set_pause(config->advertising, pause->tx_pause,
 			   pause->rx_pause);
 
-	/* If we have a PHY, phylib will call our link state function if the
-	 * mode has changed, which will trigger a resolve and update the MAC
-	 * configuration.
+	manual_changed = (config->pause ^ pause_state) & MLO_PAUSE_AN ||
+			 (!(pause_state & MLO_PAUSE_AN) &&
+			   (config->pause ^ pause_state) & MLO_PAUSE_TXRX_MASK);
+
+	config->pause = pause_state;
+
+	if (!pl->phydev && !test_bit(PHYLINK_DISABLE_STOPPED,
+				     &pl->phylink_disable_state))
+		phylink_pcs_config(pl, true, &pl->link_config);
+
+	mutex_unlock(&pl->state_mutex);
+
+	/* If we have a PHY, a change of the pause frame advertisement will
+	 * cause phylib to renegotiate (if AN is enabled) which will in turn
+	 * call our phylink_phy_change() and trigger a resolve.  Note that
+	 * we can't hold our state mutex while calling phy_set_asym_pause().
 	 */
-	if (pl->phydev) {
+	if (pl->phydev)
 		phy_set_asym_pause(pl->phydev, pause->rx_pause,
 				   pause->tx_pause);
-	} else if (!test_bit(PHYLINK_DISABLE_STOPPED,
-			     &pl->phylink_disable_state)) {
-		phylink_pcs_config(pl, true, &pl->link_config);
+
+	/* If the manual pause settings changed, make sure we trigger a
+	 * resolve to update their state; we can not guarantee that the
+	 * link will cycle.
+	 */
+	if (manual_changed) {
+		pl->mac_link_dropped = true;
+		phylink_run_resolve(pl);
 	}
-	mutex_unlock(&pl->state_mutex);
 
 	return 0;
 }
@@ -1638,11 +1658,11 @@ static int phylink_phy_read(struct phylink *pl, unsigned int phy_id,
 		case MII_BMSR:
 		case MII_PHYSID1:
 		case MII_PHYSID2:
-			devad = __ffs(phydev->c45_ids.devices_in_package);
+			devad = __ffs(phydev->c45_ids.mmds_present);
 			break;
 		case MII_ADVERTISE:
 		case MII_LPA:
-			if (!(phydev->c45_ids.devices_in_package & MDIO_DEVS_AN))
+			if (!(phydev->c45_ids.mmds_present & MDIO_DEVS_AN))
 				return -EINVAL;
 			devad = MDIO_MMD_AN;
 			if (reg == MII_ADVERTISE)
@@ -1678,11 +1698,11 @@ static int phylink_phy_write(struct phylink *pl, unsigned int phy_id,
 		case MII_BMSR:
 		case MII_PHYSID1:
 		case MII_PHYSID2:
-			devad = __ffs(phydev->c45_ids.devices_in_package);
+			devad = __ffs(phydev->c45_ids.mmds_present);
 			break;
 		case MII_ADVERTISE:
 		case MII_LPA:
-			if (!(phydev->c45_ids.devices_in_package & MDIO_DEVS_AN))
+			if (!(phydev->c45_ids.mmds_present & MDIO_DEVS_AN))
 				return -EINVAL;
 			devad = MDIO_MMD_AN;
 			if (reg == MII_ADVERTISE)
@@ -1825,6 +1845,54 @@ int phylink_mii_ioctl(struct phylink *pl, struct ifreq *ifr, int cmd)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(phylink_mii_ioctl);
+
+/**
+ * phylink_speed_down() - set the non-SFP PHY to lowest speed supported by both
+ *   link partners
+ * @pl: a pointer to a &struct phylink returned from phylink_create()
+ * @sync: perform action synchronously
+ *
+ * If we have a PHY that is not part of a SFP module, then set the speed
+ * as described in the phy_speed_down() function. Please see this function
+ * for a description of the @sync parameter.
+ *
+ * Returns zero if there is no PHY, otherwise as per phy_speed_down().
+ */
+int phylink_speed_down(struct phylink *pl, bool sync)
+{
+	int ret = 0;
+
+	ASSERT_RTNL();
+
+	if (!pl->sfp_bus && pl->phydev)
+		ret = phy_speed_down(pl->phydev, sync);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(phylink_speed_down);
+
+/**
+ * phylink_speed_up() - restore the advertised speeds prior to the call to
+ *   phylink_speed_down()
+ * @pl: a pointer to a &struct phylink returned from phylink_create()
+ *
+ * If we have a PHY that is not part of a SFP module, then restore the
+ * PHY speeds as per phy_speed_up().
+ *
+ * Returns zero if there is no PHY, otherwise as per phy_speed_up().
+ */
+int phylink_speed_up(struct phylink *pl)
+{
+	int ret = 0;
+
+	ASSERT_RTNL();
+
+	if (!pl->sfp_bus && pl->phydev)
+		ret = phy_speed_up(pl->phydev);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(phylink_speed_up);
 
 static void phylink_sfp_attach(void *upstream, struct sfp_bus *bus)
 {
