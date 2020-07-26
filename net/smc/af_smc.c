@@ -126,8 +126,10 @@ EXPORT_SYMBOL_GPL(smc_proto6);
 
 static void smc_restore_fallback_changes(struct smc_sock *smc)
 {
-	smc->clcsock->file->private_data = smc->sk.sk_socket;
-	smc->clcsock->file = NULL;
+	if (smc->clcsock->file) { /* non-accepted sockets have no file yet */
+		smc->clcsock->file->private_data = smc->sk.sk_socket;
+		smc->clcsock->file = NULL;
+	}
 }
 
 static int __smc_release(struct smc_sock *smc)
@@ -352,7 +354,7 @@ static int smcr_lgr_reg_rmbs(struct smc_link *link,
 	 */
 	mutex_lock(&lgr->llc_conf_mutex);
 	for (i = 0; i < SMC_LINKS_PER_LGR_MAX; i++) {
-		if (lgr->lnk[i].state != SMC_LNK_ACTIVE)
+		if (!smc_link_active(&lgr->lnk[i]))
 			continue;
 		rc = smcr_link_reg_rmb(&lgr->lnk[i], rmb_desc);
 		if (rc)
@@ -632,7 +634,9 @@ static int smc_connect_rdma(struct smc_sock *smc,
 		for (i = 0; i < SMC_LINKS_PER_LGR_MAX; i++) {
 			struct smc_link *l = &smc->conn.lgr->lnk[i];
 
-			if (l->peer_qpn == ntoh24(aclc->qpn)) {
+			if (l->peer_qpn == ntoh24(aclc->qpn) &&
+			    !memcmp(l->peer_gid, &aclc->lcl.gid, SMC_GID_SIZE) &&
+			    !memcmp(l->peer_mac, &aclc->lcl.mac, sizeof(l->peer_mac))) {
 				link = l;
 				break;
 			}
@@ -1731,7 +1735,7 @@ out:
 }
 
 static int smc_setsockopt(struct socket *sock, int level, int optname,
-			  char __user *optval, unsigned int optlen)
+			  sockptr_t optval, unsigned int optlen)
 {
 	struct sock *sk = sock->sk;
 	struct smc_sock *smc;
@@ -1742,8 +1746,11 @@ static int smc_setsockopt(struct socket *sock, int level, int optname,
 	/* generic setsockopts reaching us here always apply to the
 	 * CLC socket
 	 */
-	rc = smc->clcsock->ops->setsockopt(smc->clcsock, level, optname,
-					   optval, optlen);
+	if (unlikely(!smc->clcsock->ops->setsockopt))
+		rc = -EOPNOTSUPP;
+	else
+		rc = smc->clcsock->ops->setsockopt(smc->clcsock, level, optname,
+						   optval, optlen);
 	if (smc->clcsock->sk->sk_err) {
 		sk->sk_err = smc->clcsock->sk->sk_err;
 		sk->sk_error_report(sk);
@@ -1751,7 +1758,7 @@ static int smc_setsockopt(struct socket *sock, int level, int optname,
 
 	if (optlen < sizeof(int))
 		return -EINVAL;
-	if (get_user(val, (int __user *)optval))
+	if (copy_from_sockptr(&val, optval, sizeof(int)))
 		return -EFAULT;
 
 	lock_sock(sk);
@@ -1808,6 +1815,8 @@ static int smc_getsockopt(struct socket *sock, int level, int optname,
 
 	smc = smc_sk(sock->sk);
 	/* socket options apply to the CLC socket */
+	if (unlikely(!smc->clcsock->ops->getsockopt))
+		return -EOPNOTSUPP;
 	return smc->clcsock->ops->getsockopt(smc->clcsock, level, optname,
 					     optval, optlen);
 }

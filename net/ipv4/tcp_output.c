@@ -1066,6 +1066,10 @@ static void tcp_update_skb_after_send(struct sock *sk, struct sk_buff *skb,
 	list_move_tail(&skb->tcp_tsorted_anchor, &tp->tsorted_sent_queue);
 }
 
+INDIRECT_CALLABLE_DECLARE(int ip_queue_xmit(struct sock *sk, struct sk_buff *skb, struct flowi *fl));
+INDIRECT_CALLABLE_DECLARE(int inet6_csk_xmit(struct sock *sk, struct sk_buff *skb, struct flowi *fl));
+INDIRECT_CALLABLE_DECLARE(void tcp_v4_send_check(struct sock *sk, struct sk_buff *skb));
+
 /* This routine actually transmits TCP packets queued in by
  * tcp_do_sendmsg().  This is used by both the initial
  * transmission and possible later retransmissions.
@@ -1209,7 +1213,9 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 	}
 #endif
 
-	icsk->icsk_af_ops->send_check(sk, skb);
+	INDIRECT_CALL_INET(icsk->icsk_af_ops->send_check,
+			   tcp_v6_send_check, tcp_v4_send_check,
+			   sk, skb);
 
 	if (likely(tcb->tcp_flags & TCPHDR_ACK))
 		tcp_event_ack_sent(sk, tcp_skb_pcount(skb), rcv_nxt);
@@ -1237,7 +1243,9 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 
 	tcp_add_tx_delay(skb, tp);
 
-	err = icsk->icsk_af_ops->queue_xmit(sk, skb, &inet->cork.fl);
+	err = INDIRECT_CALL_INET(icsk->icsk_af_ops->queue_xmit,
+				 inet6_csk_xmit, ip_queue_xmit,
+				 sk, skb, &inet->cork.fl);
 
 	if (unlikely(err > 0)) {
 		tcp_enter_cwr(sk);
@@ -2624,6 +2632,11 @@ void tcp_send_loss_probe(struct sock *sk)
 	int pcount;
 	int mss = tcp_current_mss(sk);
 
+	/* At most one outstanding TLP */
+	if (tp->tlp_high_seq)
+		goto rearm_timer;
+
+	tp->tlp_retrans = 0;
 	skb = tcp_send_head(sk);
 	if (skb && tcp_snd_wnd_test(tp, skb, mss)) {
 		pcount = tp->packets_out;
@@ -2640,10 +2653,6 @@ void tcp_send_loss_probe(struct sock *sk)
 		inet_csk(sk)->icsk_pending = 0;
 		return;
 	}
-
-	/* At most one outstanding TLP retransmission. */
-	if (tp->tlp_high_seq)
-		goto rearm_timer;
 
 	if (skb_still_in_host_queue(sk, skb))
 		goto rearm_timer;
@@ -2666,10 +2675,12 @@ void tcp_send_loss_probe(struct sock *sk)
 	if (__tcp_retransmit_skb(sk, skb, 1))
 		goto rearm_timer;
 
+	tp->tlp_retrans = 1;
+
+probe_sent:
 	/* Record snd_nxt for loss detection. */
 	tp->tlp_high_seq = tp->snd_nxt;
 
-probe_sent:
 	NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPLOSSPROBES);
 	/* Reset s.t. tcp_rearm_rto will restart timer from now */
 	inet_csk(sk)->icsk_pending = 0;
@@ -3329,6 +3340,8 @@ int tcp_send_synack(struct sock *sk)
  * sk: listener socket
  * dst: dst entry attached to the SYNACK
  * req: request_sock pointer
+ * foc: cookie for tcp fast open
+ * synack_type: Type of synback to prepare
  *
  * Allocate one skb and build a SYNACK packet.
  * @dst is consumed : Caller should not use it again.

@@ -708,8 +708,7 @@ static int fec_enet_txq_submit_tso(struct fec_enet_priv_tx_q *txq,
 				   struct net_device *ndev)
 {
 	struct fec_enet_private *fep = netdev_priv(ndev);
-	int hdr_len = skb_transport_offset(skb) + tcp_hdrlen(skb);
-	int total_len, data_left;
+	int hdr_len, total_len, data_left;
 	struct bufdesc *bdp = txq->bd.cur;
 	struct tso_t tso;
 	unsigned int index = 0;
@@ -729,7 +728,7 @@ static int fec_enet_txq_submit_tso(struct fec_enet_priv_tx_q *txq,
 	}
 
 	/* Initialize the TSO handler, and prepare the first payload */
-	tso_start(skb, &tso);
+	hdr_len = tso_start(skb, &tso);
 
 	total_len = skb->len - hdr_len;
 	while (total_len > 0) {
@@ -1294,8 +1293,13 @@ fec_enet_tx_queue(struct net_device *ndev, u16 queue_id)
 			ndev->stats.tx_bytes += skb->len;
 		}
 
-		if (unlikely(skb_shinfo(skb)->tx_flags & SKBTX_IN_PROGRESS) &&
-			fep->bufdesc_ex) {
+		/* NOTE: SKBTX_IN_PROGRESS being set does not imply it's we who
+		 * are to time stamp the packet, so we still need to check time
+		 * stamping enabled flag.
+		 */
+		if (unlikely(skb_shinfo(skb)->tx_flags & SKBTX_IN_PROGRESS &&
+			     fep->hwts_tx_en) &&
+		    fep->bufdesc_ex) {
 			struct skb_shared_hwtstamps shhwtstamps;
 			struct bufdesc_ex *ebdp = (struct bufdesc_ex *)bdp;
 
@@ -2723,10 +2727,16 @@ static int fec_enet_ioctl(struct net_device *ndev, struct ifreq *rq, int cmd)
 		return -ENODEV;
 
 	if (fep->bufdesc_ex) {
-		if (cmd == SIOCSHWTSTAMP)
-			return fec_ptp_set(ndev, rq);
-		if (cmd == SIOCGHWTSTAMP)
-			return fec_ptp_get(ndev, rq);
+		bool use_fec_hwts = !phy_has_hwtstamp(phydev);
+
+		if (cmd == SIOCSHWTSTAMP) {
+			if (use_fec_hwts)
+				return fec_ptp_set(ndev, rq);
+			fec_ptp_disable_hwts(ndev);
+		} else if (cmd == SIOCGHWTSTAMP) {
+			if (use_fec_hwts)
+				return fec_ptp_get(ndev, rq);
+		}
 	}
 
 	return phy_mii_ioctl(phydev, rq, cmd);
@@ -3678,6 +3688,8 @@ fec_probe(struct platform_device *pdev)
 	netif_carrier_off(ndev);
 	fec_enet_clk_enable(ndev, false);
 	pinctrl_pm_select_sleep_state(&pdev->dev);
+
+	ndev->max_mtu = PKT_MAXBUF_SIZE - ETH_HLEN - ETH_FCS_LEN;
 
 	ret = register_netdev(ndev);
 	if (ret)
