@@ -38,8 +38,6 @@
  *
  **************************************************************************/
 
-#define EFX_DRIVER_VERSION	"4.1"
-
 #ifdef DEBUG
 #define EFX_WARN_ON_ONCE_PARANOID(x) WARN_ON_ONCE(x)
 #define EFX_WARN_ON_PARANOID(x) WARN_ON(x)
@@ -244,7 +242,7 @@ struct efx_tx_buffer {
  * @tso_fallbacks: Number of times TSO fallback used
  * @pushes: Number of times the TX push feature has been used
  * @pio_packets: Number of times the TX PIO feature has been used
- * @xmit_more_available: Are any packets waiting to be pushed to the NIC
+ * @xmit_pending: Are any packets waiting to be pushed to the NIC
  * @cb_packets: Number of times the TX copybreak feature has been used
  * @notify_count: Count of notified descriptors to the NIC
  * @empty_read_count: If the completion path has seen the queue as empty
@@ -292,7 +290,7 @@ struct efx_tx_queue {
 	unsigned int tso_fallbacks;
 	unsigned int pushes;
 	unsigned int pio_packets;
-	bool xmit_more_available;
+	bool xmit_pending;
 	unsigned int cb_packets;
 	unsigned int notify_count;
 	/* Statistics to supplement MAC stats */
@@ -658,51 +656,6 @@ static inline bool efx_link_state_equal(const struct efx_link_state *left,
 }
 
 /**
- * struct efx_phy_operations - Efx PHY operations table
- * @probe: Probe PHY and initialise efx->mdio.mode_support, efx->mdio.mmds,
- *	efx->loopback_modes.
- * @init: Initialise PHY
- * @fini: Shut down PHY
- * @reconfigure: Reconfigure PHY (e.g. for new link parameters)
- * @poll: Update @link_state and report whether it changed.
- *	Serialised by the mac_lock.
- * @get_link_ksettings: Get ethtool settings. Serialised by the mac_lock.
- * @set_link_ksettings: Set ethtool settings. Serialised by the mac_lock.
- * @get_fecparam: Get Forward Error Correction settings. Serialised by mac_lock.
- * @set_fecparam: Set Forward Error Correction settings. Serialised by mac_lock.
- * @set_npage_adv: Set abilities advertised in (Extended) Next Page
- *	(only needed where AN bit is set in mmds)
- * @test_alive: Test that PHY is 'alive' (online)
- * @test_name: Get the name of a PHY-specific test/result
- * @run_tests: Run tests and record results as appropriate (offline).
- *	Flags are the ethtool tests flags.
- */
-struct efx_phy_operations {
-	int (*probe) (struct efx_nic *efx);
-	int (*init) (struct efx_nic *efx);
-	void (*fini) (struct efx_nic *efx);
-	void (*remove) (struct efx_nic *efx);
-	int (*reconfigure) (struct efx_nic *efx);
-	bool (*poll) (struct efx_nic *efx);
-	void (*get_link_ksettings)(struct efx_nic *efx,
-				   struct ethtool_link_ksettings *cmd);
-	int (*set_link_ksettings)(struct efx_nic *efx,
-				  const struct ethtool_link_ksettings *cmd);
-	int (*get_fecparam)(struct efx_nic *efx, struct ethtool_fecparam *fec);
-	int (*set_fecparam)(struct efx_nic *efx,
-			    const struct ethtool_fecparam *fec);
-	void (*set_npage_adv) (struct efx_nic *efx, u32);
-	int (*test_alive) (struct efx_nic *efx);
-	const char *(*test_name) (struct efx_nic *efx, unsigned int index);
-	int (*run_tests) (struct efx_nic *efx, int *results, unsigned flags);
-	int (*get_module_eeprom) (struct efx_nic *efx,
-			       struct ethtool_eeprom *ee,
-			       u8 *data);
-	int (*get_module_info) (struct efx_nic *efx,
-				struct ethtool_modinfo *modinfo);
-};
-
-/**
  * enum efx_phy_mode - PHY operating mode flags
  * @PHY_MODE_NORMAL: on and should pass traffic
  * @PHY_MODE_TX_DISABLED: on with TX disabled
@@ -920,7 +873,6 @@ struct efx_async_filter_insertion {
  *	field of %MC_CMD_GET_CAPABILITIES_V4 response, or %MC_CMD_MAC_NSTATS)
  * @stats_buffer: DMA buffer for statistics
  * @phy_type: PHY type
- * @phy_op: PHY interface
  * @phy_data: PHY private data (including PHY-specific stats)
  * @mdio: PHY MDIO interface
  * @mdio_bus: PHY MDIO bus ID (only used by Siena)
@@ -1094,7 +1046,6 @@ struct efx_nic {
 	bool rx_nodesc_drops_prev_state;
 
 	unsigned int phy_type;
-	const struct efx_phy_operations *phy_op;
 	void *phy_data;
 	struct mdio_if_info mdio;
 	unsigned int mdio_bus;
@@ -1217,7 +1168,6 @@ struct efx_udp_tunnel {
  * @start_stats: Start the regular fetching of statistics
  * @pull_stats: Pull stats from the NIC and wait until they arrive.
  * @stop_stats: Stop the regular fetching of statistics
- * @set_id_led: Set state of identifying LED or revert to automatic function
  * @push_irq_moderation: Apply interrupt moderation value
  * @reconfigure_port: Push loopback/power/txdis changes to the MAC and PHY
  * @prepare_enable_fc_tx: Prepare MAC to enable pause frame TX (may be %NULL)
@@ -1362,7 +1312,6 @@ struct efx_nic_type {
 	void (*start_stats)(struct efx_nic *efx);
 	void (*pull_stats)(struct efx_nic *efx);
 	void (*stop_stats)(struct efx_nic *efx);
-	void (*set_id_led)(struct efx_nic *efx, enum efx_led_mode mode);
 	void (*push_irq_moderation)(struct efx_channel *channel);
 	int (*reconfigure_port)(struct efx_nic *efx);
 	void (*prepare_enable_fc_tx)(struct efx_nic *efx);
@@ -1683,13 +1632,23 @@ efx_channel_tx_fill_level(struct efx_channel *channel)
 	struct efx_tx_queue *tx_queue;
 	unsigned int fill_level = 0;
 
-	/* This function is currently only used by EF100, which maybe
-	 * could do something simpler and just compute the fill level
-	 * of the single TXQ that's really in use.
-	 */
 	efx_for_each_channel_tx_queue(tx_queue, channel)
 		fill_level = max(fill_level,
 				 tx_queue->insert_count - tx_queue->read_count);
+
+	return fill_level;
+}
+
+/* Conservative approximation of efx_channel_tx_fill_level using cached value */
+static inline unsigned int
+efx_channel_tx_old_fill_level(struct efx_channel *channel)
+{
+	struct efx_tx_queue *tx_queue;
+	unsigned int fill_level = 0;
+
+	efx_for_each_channel_tx_queue(tx_queue, channel)
+		fill_level = max(fill_level,
+				 tx_queue->insert_count - tx_queue->old_read_count);
 
 	return fill_level;
 }
