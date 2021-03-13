@@ -406,7 +406,7 @@ static int bcm_sf2_sw_rst(struct bcm_sf2_priv *priv)
 	/* The watchdog reset does not work on 7278, we need to hit the
 	 * "external" reset line through the reset controller.
 	 */
-	if (priv->type == BCM7278_DEVICE_ID && !IS_ERR(priv->rcdev)) {
+	if (priv->type == BCM7278_DEVICE_ID) {
 		ret = reset_control_assert(priv->rcdev);
 		if (ret)
 			return ret;
@@ -432,6 +432,44 @@ static int bcm_sf2_sw_rst(struct bcm_sf2_priv *priv)
 	return 0;
 }
 
+static void bcm_sf2_crossbar_setup(struct bcm_sf2_priv *priv)
+{
+	struct device *dev = priv->dev->ds->dev;
+	int shift;
+	u32 mask;
+	u32 reg;
+	int i;
+
+	mask = BIT(priv->num_crossbar_int_ports) - 1;
+
+	reg = reg_readl(priv, REG_CROSSBAR);
+	switch (priv->type) {
+	case BCM4908_DEVICE_ID:
+		shift = CROSSBAR_BCM4908_INT_P7 * priv->num_crossbar_int_ports;
+		reg &= ~(mask << shift);
+		if (0) /* FIXME */
+			reg |= CROSSBAR_BCM4908_EXT_SERDES << shift;
+		else if (priv->int_phy_mask & BIT(7))
+			reg |= CROSSBAR_BCM4908_EXT_GPHY4 << shift;
+		else if (phy_interface_mode_is_rgmii(priv->port_sts[7].mode))
+			reg |= CROSSBAR_BCM4908_EXT_RGMII << shift;
+		else if (WARN(1, "Invalid port mode\n"))
+			return;
+		break;
+	default:
+		return;
+	}
+	reg_writel(priv, reg, REG_CROSSBAR);
+
+	reg = reg_readl(priv, REG_CROSSBAR);
+	for (i = 0; i < priv->num_crossbar_int_ports; i++) {
+		shift = i * priv->num_crossbar_int_ports;
+
+		dev_dbg(dev, "crossbar int port #%d - ext port #%d\n", i,
+			(reg >> shift) & mask);
+	}
+}
+
 static void bcm_sf2_intr_disable(struct bcm_sf2_priv *priv)
 {
 	intrl2_0_mask_set(priv, 0xffffffff);
@@ -443,10 +481,11 @@ static void bcm_sf2_intr_disable(struct bcm_sf2_priv *priv)
 static void bcm_sf2_identify_ports(struct bcm_sf2_priv *priv,
 				   struct device_node *dn)
 {
+	struct device *dev = priv->dev->ds->dev;
+	struct bcm_sf2_port_status *port_st;
 	struct device_node *port;
 	unsigned int port_num;
 	struct property *prop;
-	phy_interface_t mode;
 	int err;
 
 	priv->moca_port = -1;
@@ -455,19 +494,26 @@ static void bcm_sf2_identify_ports(struct bcm_sf2_priv *priv,
 		if (of_property_read_u32(port, "reg", &port_num))
 			continue;
 
+		if (port_num >= DSA_MAX_PORTS) {
+			dev_err(dev, "Invalid port number %d\n", port_num);
+			continue;
+		}
+
+		port_st = &priv->port_sts[port_num];
+
 		/* Internal PHYs get assigned a specific 'phy-mode' property
 		 * value: "internal" to help flag them before MDIO probing
 		 * has completed, since they might be turned off at that
 		 * time
 		 */
-		err = of_get_phy_mode(port, &mode);
+		err = of_get_phy_mode(port, &port_st->mode);
 		if (err)
 			continue;
 
-		if (mode == PHY_INTERFACE_MODE_INTERNAL)
+		if (port_st->mode == PHY_INTERFACE_MODE_INTERNAL)
 			priv->int_phy_mask |= 1 << port_num;
 
-		if (mode == PHY_INTERFACE_MODE_MOCA)
+		if (port_st->mode == PHY_INTERFACE_MODE_MOCA)
 			priv->moca_port = port_num;
 
 		if (of_property_read_bool(port, "brcm,use-bcm-hdr"))
@@ -856,6 +902,8 @@ static int bcm_sf2_sw_resume(struct dsa_switch *ds)
 		return ret;
 	}
 
+	bcm_sf2_crossbar_setup(priv);
+
 	ret = bcm_sf2_cfp_resume(ds);
 	if (ret)
 		return ret;
@@ -1128,6 +1176,7 @@ struct bcm_sf2_of_data {
 	const u16 *reg_offsets;
 	unsigned int core_reg_align;
 	unsigned int num_cfp_rules;
+	unsigned int num_crossbar_int_ports;
 };
 
 static const u16 bcm_sf2_4908_reg_offsets[] = {
@@ -1152,6 +1201,7 @@ static const struct bcm_sf2_of_data bcm_sf2_4908_data = {
 	.core_reg_align	= 0,
 	.reg_offsets	= bcm_sf2_4908_reg_offsets,
 	.num_cfp_rules	= 0, /* FIXME */
+	.num_crossbar_int_ports = 2,
 };
 
 /* Register offsets for the SWITCH_REG_* block */
@@ -1262,10 +1312,11 @@ static int bcm_sf2_sw_probe(struct platform_device *pdev)
 	priv->reg_offsets = data->reg_offsets;
 	priv->core_reg_align = data->core_reg_align;
 	priv->num_cfp_rules = data->num_cfp_rules;
+	priv->num_crossbar_int_ports = data->num_crossbar_int_ports;
 
 	priv->rcdev = devm_reset_control_get_optional_exclusive(&pdev->dev,
 								"switch");
-	if (PTR_ERR(priv->rcdev) == -EPROBE_DEFER)
+	if (IS_ERR(priv->rcdev))
 		return PTR_ERR(priv->rcdev);
 
 	/* Auto-detection using standard registers will not work, so
@@ -1334,6 +1385,8 @@ static int bcm_sf2_sw_probe(struct platform_device *pdev)
 		pr_err("unable to software reset switch: %d\n", ret);
 		goto out_clk_mdiv;
 	}
+
+	bcm_sf2_crossbar_setup(priv);
 
 	bcm_sf2_gphy_enable_set(priv->dev->ds, true);
 
@@ -1426,7 +1479,7 @@ static int bcm_sf2_sw_remove(struct platform_device *pdev)
 	bcm_sf2_mdio_unregister(priv);
 	clk_disable_unprepare(priv->clk_mdiv);
 	clk_disable_unprepare(priv->clk);
-	if (priv->type == BCM7278_DEVICE_ID && !IS_ERR(priv->rcdev))
+	if (priv->type == BCM7278_DEVICE_ID)
 		reset_control_assert(priv->rcdev);
 
 	return 0;
