@@ -49,6 +49,8 @@ enum {
 #define MLXSW_SP_TRAP_METADATA DEVLINK_TRAP_METADATA_TYPE_F_IN_PORT
 
 enum {
+	/* Packet was mirrored from ingress. */
+	MLXSW_SP_MIRROR_REASON_INGRESS = 1,
 	/* Packet was early dropped. */
 	MLXSW_SP_MIRROR_REASON_INGRESS_WRED = 9,
 };
@@ -106,7 +108,7 @@ static void mlxsw_sp_rx_drop_listener(struct sk_buff *skb, u8 local_port,
 static void mlxsw_sp_rx_acl_drop_listener(struct sk_buff *skb, u8 local_port,
 					  void *trap_ctx)
 {
-	u32 cookie_index = mlxsw_skb_cb(skb)->cookie_index;
+	u32 cookie_index = mlxsw_skb_cb(skb)->rx_md_info.cookie_index;
 	const struct flow_action_cookie *fa_cookie;
 	struct devlink_port *in_devlink_port;
 	struct mlxsw_sp_port *mlxsw_sp_port;
@@ -202,21 +204,86 @@ static void mlxsw_sp_rx_ptp_listener(struct sk_buff *skb, u8 local_port,
 	mlxsw_sp_ptp_receive(mlxsw_sp, skb, local_port);
 }
 
+static struct mlxsw_sp_port *
+mlxsw_sp_sample_tx_port_get(struct mlxsw_sp *mlxsw_sp,
+			    const struct mlxsw_rx_md_info *rx_md_info)
+{
+	u8 local_port;
+
+	if (!rx_md_info->tx_port_valid)
+		return NULL;
+
+	if (rx_md_info->tx_port_is_lag)
+		local_port = mlxsw_core_lag_mapping_get(mlxsw_sp->core,
+							rx_md_info->tx_lag_id,
+							rx_md_info->tx_lag_port_index);
+	else
+		local_port = rx_md_info->tx_sys_port;
+
+	if (local_port >= mlxsw_core_max_ports(mlxsw_sp->core))
+		return NULL;
+
+	return mlxsw_sp->ports[local_port];
+}
+
+/* The latency units are determined according to MOGCR.mirror_latency_units. It
+ * defaults to 64 nanoseconds.
+ */
+#define MLXSW_SP_MIRROR_LATENCY_SHIFT	6
+
+static void mlxsw_sp_psample_md_init(struct mlxsw_sp *mlxsw_sp,
+				     struct psample_metadata *md,
+				     struct sk_buff *skb, int in_ifindex,
+				     bool truncate, u32 trunc_size)
+{
+	struct mlxsw_rx_md_info *rx_md_info = &mlxsw_skb_cb(skb)->rx_md_info;
+	struct mlxsw_sp_port *mlxsw_sp_port;
+
+	md->trunc_size = truncate ? trunc_size : skb->len;
+	md->in_ifindex = in_ifindex;
+	mlxsw_sp_port = mlxsw_sp_sample_tx_port_get(mlxsw_sp, rx_md_info);
+	md->out_ifindex = mlxsw_sp_port && mlxsw_sp_port->dev ?
+			  mlxsw_sp_port->dev->ifindex : 0;
+	md->out_tc_valid = rx_md_info->tx_tc_valid;
+	md->out_tc = rx_md_info->tx_tc;
+	md->out_tc_occ_valid = rx_md_info->tx_congestion_valid;
+	md->out_tc_occ = rx_md_info->tx_congestion;
+	md->latency_valid = rx_md_info->latency_valid;
+	md->latency = rx_md_info->latency;
+	md->latency <<= MLXSW_SP_MIRROR_LATENCY_SHIFT;
+}
+
 static void mlxsw_sp_rx_sample_listener(struct sk_buff *skb, u8 local_port,
 					void *trap_ctx)
 {
 	struct mlxsw_sp *mlxsw_sp = devlink_trap_ctx_priv(trap_ctx);
+	struct mlxsw_sp_port *mlxsw_sp_port;
+	struct mlxsw_sp_port_sample *sample;
+	struct psample_metadata md = {};
 	int err;
 
 	err = __mlxsw_sp_rx_no_mark_listener(skb, local_port, trap_ctx);
 	if (err)
 		return;
 
-	/* The sample handler expects skb->data to point to the start of the
+	mlxsw_sp_port = mlxsw_sp->ports[local_port];
+	if (!mlxsw_sp_port)
+		goto out;
+
+	sample = rcu_dereference(mlxsw_sp_port->sample);
+	if (!sample)
+		goto out;
+
+	/* The psample module expects skb->data to point to the start of the
 	 * Ethernet header.
 	 */
 	skb_push(skb, ETH_HLEN);
-	mlxsw_sp_sample_receive(mlxsw_sp, skb, local_port);
+	mlxsw_sp_psample_md_init(mlxsw_sp, &md, skb,
+				 mlxsw_sp_port->dev->ifindex, sample->truncate,
+				 sample->trunc_size);
+	psample_sample_packet(sample->psample_group, skb, sample->rate, &md);
+out:
+	consume_skb(skb);
 }
 
 #define MLXSW_SP_TRAP_DROP(_id, _group_id)				      \
@@ -462,11 +529,6 @@ static const struct mlxsw_sp_trap_group_item mlxsw_sp_trap_group_items_arr[] = {
 		.group = DEVLINK_TRAP_GROUP_GENERIC(PTP_GENERAL, 17),
 		.hw_group_id = MLXSW_REG_HTGT_TRAP_GROUP_SP_PTP1,
 		.priority = 2,
-	},
-	{
-		.group = DEVLINK_TRAP_GROUP_GENERIC(ACL_SAMPLE, 0),
-		.hw_group_id = MLXSW_REG_HTGT_TRAP_GROUP_SP_PKT_SAMPLE,
-		.priority = 0,
 	},
 	{
 		.group = DEVLINK_TRAP_GROUP_GENERIC(ACL_TRAP, 18),
@@ -990,14 +1052,6 @@ static const struct mlxsw_sp_trap_item mlxsw_sp_trap_items_arr[] = {
 		.trap = MLXSW_SP_TRAP_CONTROL(PTP_GENERAL, PTP_GENERAL, TRAP),
 		.listeners_arr = {
 			MLXSW_SP_RXL_NO_MARK(PTP1, PTP1, TRAP_TO_CPU, false),
-		},
-	},
-	{
-		.trap = MLXSW_SP_TRAP_CONTROL(FLOW_ACTION_SAMPLE, ACL_SAMPLE,
-					      MIRROR),
-		.listeners_arr = {
-			MLXSW_RXL(mlxsw_sp_rx_sample_listener, PKT_SAMPLE,
-				  MIRROR_TO_CPU, false, SP_PKT_SAMPLE, DISCARD),
 		},
 	},
 	{
@@ -1709,10 +1763,23 @@ int mlxsw_sp_trap_group_policer_hw_id_get(struct mlxsw_sp *mlxsw_sp, u16 id,
 
 static const struct mlxsw_sp_trap_group_item
 mlxsw_sp1_trap_group_items_arr[] = {
+	{
+		.group = DEVLINK_TRAP_GROUP_GENERIC(ACL_SAMPLE, 0),
+		.hw_group_id = MLXSW_REG_HTGT_TRAP_GROUP_SP_PKT_SAMPLE,
+		.priority = 0,
+	},
 };
 
 static const struct mlxsw_sp_trap_item
 mlxsw_sp1_trap_items_arr[] = {
+	{
+		.trap = MLXSW_SP_TRAP_CONTROL(FLOW_ACTION_SAMPLE, ACL_SAMPLE,
+					      MIRROR),
+		.listeners_arr = {
+			MLXSW_RXL(mlxsw_sp_rx_sample_listener, PKT_SAMPLE,
+				  MIRROR_TO_CPU, false, SP_PKT_SAMPLE, DISCARD),
+		},
+	},
 };
 
 static int
@@ -1749,6 +1816,12 @@ mlxsw_sp2_trap_group_items_arr[] = {
 		.priority = 0,
 		.fixed_policer = true,
 	},
+	{
+		.group = DEVLINK_TRAP_GROUP_GENERIC(ACL_SAMPLE, 0),
+		.hw_group_id = MLXSW_REG_HTGT_TRAP_GROUP_SP_PKT_SAMPLE,
+		.priority = 0,
+		.fixed_policer = true,
+	},
 };
 
 static const struct mlxsw_sp_trap_item
@@ -1759,6 +1832,15 @@ mlxsw_sp2_trap_items_arr[] = {
 			MLXSW_SP_RXL_BUFFER_DISCARD(INGRESS_WRED),
 		},
 		.is_source = true,
+	},
+	{
+		.trap = MLXSW_SP_TRAP_CONTROL(FLOW_ACTION_SAMPLE, ACL_SAMPLE,
+					      MIRROR),
+		.listeners_arr = {
+			MLXSW_RXL_MIRROR(mlxsw_sp_rx_sample_listener, 1,
+					 SP_PKT_SAMPLE,
+					 MLXSW_SP_MIRROR_REASON_INGRESS),
+		},
 	},
 };
 

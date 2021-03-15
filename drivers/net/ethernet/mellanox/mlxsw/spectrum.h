@@ -179,6 +179,7 @@ struct mlxsw_sp {
 	const struct mlxsw_sp_span_ops *span_ops;
 	const struct mlxsw_sp_policer_core_ops *policer_core_ops;
 	const struct mlxsw_sp_trap_ops *trap_ops;
+	const struct mlxsw_sp_mall_ops *mall_ops;
 	const struct mlxsw_listener *listeners;
 	size_t listeners_count;
 	u32 lowest_shaper_bs;
@@ -237,6 +238,7 @@ struct mlxsw_sp_port_sample {
 	u32 trunc_size;
 	u32 rate;
 	bool truncate;
+	int span_id;	/* Relevant for Spectrum-2 onwards. */
 };
 
 struct mlxsw_sp_bridge_port;
@@ -568,8 +570,6 @@ void mlxsw_sp_rx_listener_no_mark_func(struct sk_buff *skb,
 				       u8 local_port, void *priv);
 void mlxsw_sp_ptp_receive(struct mlxsw_sp *mlxsw_sp, struct sk_buff *skb,
 			  u8 local_port);
-void mlxsw_sp_sample_receive(struct mlxsw_sp *mlxsw_sp, struct sk_buff *skb,
-			     u8 local_port);
 int mlxsw_sp_port_speed_get(struct mlxsw_sp_port *mlxsw_sp_port, u32 *speed);
 int mlxsw_sp_port_ets_set(struct mlxsw_sp_port *mlxsw_sp_port,
 			  enum mlxsw_reg_qeec_hr hr, u8 index, u8 next_index,
@@ -1033,6 +1033,16 @@ extern const struct mlxsw_afk_ops mlxsw_sp1_afk_ops;
 extern const struct mlxsw_afk_ops mlxsw_sp2_afk_ops;
 
 /* spectrum_matchall.c */
+struct mlxsw_sp_mall_ops {
+	int (*sample_add)(struct mlxsw_sp *mlxsw_sp,
+			  struct mlxsw_sp_port *mlxsw_sp_port, u32 rate);
+	void (*sample_del)(struct mlxsw_sp *mlxsw_sp,
+			   struct mlxsw_sp_port *mlxsw_sp_port);
+};
+
+extern const struct mlxsw_sp_mall_ops mlxsw_sp1_mall_ops;
+extern const struct mlxsw_sp_mall_ops mlxsw_sp2_mall_ops;
+
 enum mlxsw_sp_mall_action_type {
 	MLXSW_SP_MALL_ACTION_TYPE_MIRROR,
 	MLXSW_SP_MALL_ACTION_TYPE_SAMPLE,
