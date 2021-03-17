@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright 2014-2016 Freescale Semiconductor Inc.
- * Copyright 2017-2018 NXP
+ * Copyright 2017-2021 NXP
  *
  */
 
@@ -14,52 +14,30 @@
 
 struct fsl_mc_io;
 
-/**
- * DPSW general definitions
- */
+/* DPSW general definitions */
 
-/**
- * Maximum number of traffic class priorities
- */
 #define DPSW_MAX_PRIORITIES	8
-/**
- * Maximum number of interfaces
- */
+
 #define DPSW_MAX_IF		64
 
-int dpsw_open(struct fsl_mc_io *mc_io,
-	      u32 cmd_flags,
-	      int dpsw_id,
-	      u16 *token);
+int dpsw_open(struct fsl_mc_io *mc_io, u32 cmd_flags, int dpsw_id, u16 *token);
 
-int dpsw_close(struct fsl_mc_io *mc_io,
-	       u32 cmd_flags,
-	       u16 token);
+int dpsw_close(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token);
+
+/* DPSW options */
 
 /**
- * DPSW options
- */
-
-/**
- * Disable flooding
+ * DPSW_OPT_FLOODING_DIS - Flooding was disabled at device create
  */
 #define DPSW_OPT_FLOODING_DIS		0x0000000000000001ULL
 /**
- * Disable Multicast
+ * DPSW_OPT_MULTICAST_DIS - Multicast was disabled at device create
  */
 #define DPSW_OPT_MULTICAST_DIS		0x0000000000000004ULL
 /**
- * Support control interface
+ * DPSW_OPT_CTRL_IF_DIS - Control interface support is disabled
  */
 #define DPSW_OPT_CTRL_IF_DIS		0x0000000000000010ULL
-/**
- * Disable flooding metering
- */
-#define DPSW_OPT_FLOODING_METERING_DIS  0x0000000000000020ULL
-/**
- * Enable metering
- */
-#define DPSW_OPT_METERING_EN            0x0000000000000040ULL
 
 /**
  * enum dpsw_component_type - component type of a bridge
@@ -75,27 +53,48 @@ enum dpsw_component_type {
 	DPSW_COMPONENT_TYPE_S_VLAN
 };
 
-int dpsw_enable(struct fsl_mc_io *mc_io,
-		u32 cmd_flags,
-		u16 token);
-
-int dpsw_disable(struct fsl_mc_io *mc_io,
-		 u32 cmd_flags,
-		 u16 token);
-
-int dpsw_reset(struct fsl_mc_io *mc_io,
-	       u32 cmd_flags,
-	       u16 token);
+/**
+ *  enum dpsw_flooding_cfg - flooding configuration requested
+ * @DPSW_FLOODING_PER_VLAN: Flooding replicators are allocated per VLAN and
+ * interfaces present in each of them can be configured using
+ * dpsw_vlan_add_if_flooding()/dpsw_vlan_remove_if_flooding().
+ * This is the default configuration.
+ *
+ * @DPSW_FLOODING_PER_FDB: Flooding replicators are allocated per FDB and
+ * interfaces present in each of them can be configured using
+ * dpsw_set_egress_flood().
+ */
+enum dpsw_flooding_cfg {
+	DPSW_FLOODING_PER_VLAN = 0,
+	DPSW_FLOODING_PER_FDB,
+};
 
 /**
- * DPSW IRQ Index and Events
+ * enum dpsw_broadcast_cfg - broadcast configuration requested
+ * @DPSW_BROADCAST_PER_OBJECT: There is only one broadcast replicator per DPSW
+ * object. This is the default configuration.
+ * @DPSW_BROADCAST_PER_FDB: Broadcast replicators are allocated per FDB and
+ * interfaces present in each of them can be configured using
+ * dpsw_set_egress_flood().
  */
+enum dpsw_broadcast_cfg {
+	DPSW_BROADCAST_PER_OBJECT = 0,
+	DPSW_BROADCAST_PER_FDB,
+};
+
+int dpsw_enable(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token);
+
+int dpsw_disable(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token);
+
+int dpsw_reset(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token);
+
+/* DPSW IRQ Index and Events */
 
 #define DPSW_IRQ_INDEX_IF		0x0000
 #define DPSW_IRQ_INDEX_L2SW		0x0001
 
 /**
- * IRQ event - Indicates that the link state changed
+ * DPSW_IRQ_EVENT_LINK_CHANGED - Indicates that the link state changed
  */
 #define DPSW_IRQ_EVENT_LINK_CHANGED	0x0001
 
@@ -111,29 +110,17 @@ struct dpsw_irq_cfg {
 	int irq_num;
 };
 
-int dpsw_set_irq_enable(struct fsl_mc_io *mc_io,
-			u32 cmd_flags,
-			u16 token,
-			u8 irq_index,
-			u8 en);
+int dpsw_set_irq_enable(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+			u8 irq_index, u8 en);
 
-int dpsw_set_irq_mask(struct fsl_mc_io *mc_io,
-		      u32 cmd_flags,
-		      u16 token,
-		      u8 irq_index,
-		      u32 mask);
+int dpsw_set_irq_mask(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+		      u8 irq_index, u32 mask);
 
-int dpsw_get_irq_status(struct fsl_mc_io *mc_io,
-			u32 cmd_flags,
-			u16 token,
-			u8 irq_index,
-			u32 *status);
+int dpsw_get_irq_status(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+			u8 irq_index, u32 *status);
 
-int dpsw_clear_irq_status(struct fsl_mc_io *mc_io,
-			  u32 cmd_flags,
-			  u16 token,
-			  u8 irq_index,
-			  u32 status);
+int dpsw_clear_irq_status(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+			  u8 irq_index, u32 status);
 
 /**
  * struct dpsw_attr - Structure representing DPSW attributes
@@ -153,6 +140,8 @@ int dpsw_clear_irq_status(struct fsl_mc_io *mc_io,
  * @num_vlans: Current number of VLANs
  * @num_fdbs: Current number of FDBs
  * @component_type: Component type of this bridge
+ * @flooding_cfg: Flooding configuration (PER_VLAN - default, PER_FDB)
+ * @broadcast_cfg: Broadcast configuration (PER_OBJECT - default, PER_FDB)
  */
 struct dpsw_attr {
 	int id;
@@ -168,12 +157,84 @@ struct dpsw_attr {
 	u16 num_vlans;
 	u8 num_fdbs;
 	enum dpsw_component_type component_type;
+	enum dpsw_flooding_cfg flooding_cfg;
+	enum dpsw_broadcast_cfg broadcast_cfg;
 };
 
-int dpsw_get_attributes(struct fsl_mc_io *mc_io,
-			u32 cmd_flags,
-			u16 token,
+int dpsw_get_attributes(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
 			struct dpsw_attr *attr);
+
+/**
+ * struct dpsw_ctrl_if_attr - Control interface attributes
+ * @rx_fqid:		Receive FQID
+ * @rx_err_fqid:	Receive error FQID
+ * @tx_err_conf_fqid:	Transmit error and confirmation FQID
+ */
+struct dpsw_ctrl_if_attr {
+	u32 rx_fqid;
+	u32 rx_err_fqid;
+	u32 tx_err_conf_fqid;
+};
+
+int dpsw_ctrl_if_get_attributes(struct fsl_mc_io *mc_io, u32 cmd_flags,
+				u16 token, struct dpsw_ctrl_if_attr *attr);
+
+enum dpsw_queue_type {
+	DPSW_QUEUE_RX,
+	DPSW_QUEUE_TX_ERR_CONF,
+	DPSW_QUEUE_RX_ERR,
+};
+
+#define DPSW_MAX_DPBP     8
+
+/**
+ * struct dpsw_ctrl_if_pools_cfg - Control interface buffer pools configuration
+ * @num_dpbp: Number of DPBPs
+ * @pools: Array of buffer pools parameters; The number of valid entries
+ *	must match 'num_dpbp' value
+ * @pools.dpbp_id: DPBP object ID
+ * @pools.buffer_size: Buffer size
+ * @pools.backup_pool: Backup pool
+ */
+struct dpsw_ctrl_if_pools_cfg {
+	u8 num_dpbp;
+	struct {
+		int dpbp_id;
+		u16 buffer_size;
+		int backup_pool;
+	} pools[DPSW_MAX_DPBP];
+};
+
+int dpsw_ctrl_if_set_pools(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+			   const struct dpsw_ctrl_if_pools_cfg *cfg);
+
+#define DPSW_CTRL_IF_QUEUE_OPT_USER_CTX		0x00000001
+#define DPSW_CTRL_IF_QUEUE_OPT_DEST		0x00000002
+
+enum dpsw_ctrl_if_dest {
+	DPSW_CTRL_IF_DEST_NONE = 0,
+	DPSW_CTRL_IF_DEST_DPIO = 1,
+};
+
+struct dpsw_ctrl_if_dest_cfg {
+	enum dpsw_ctrl_if_dest dest_type;
+	int dest_id;
+	u8 priority;
+};
+
+struct dpsw_ctrl_if_queue_cfg {
+	u32 options;
+	u64 user_ctx;
+	struct dpsw_ctrl_if_dest_cfg dest_cfg;
+};
+
+int dpsw_ctrl_if_set_queue(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+			   enum dpsw_queue_type qtype,
+			   const struct dpsw_ctrl_if_queue_cfg *cfg);
+
+int dpsw_ctrl_if_enable(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token);
+
+int dpsw_ctrl_if_disable(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token);
 
 /**
  * enum dpsw_action - Action selection for special/control frames
@@ -185,21 +246,9 @@ enum dpsw_action {
 	DPSW_ACTION_REDIRECT = 1
 };
 
-/**
- * Enable auto-negotiation
- */
 #define DPSW_LINK_OPT_AUTONEG		0x0000000000000001ULL
-/**
- * Enable half-duplex mode
- */
 #define DPSW_LINK_OPT_HALF_DUPLEX	0x0000000000000002ULL
-/**
- * Enable pause frames
- */
 #define DPSW_LINK_OPT_PAUSE		0x0000000000000004ULL
-/**
- * Enable a-symmetric pause frames
- */
 #define DPSW_LINK_OPT_ASYM_PAUSE	0x0000000000000008ULL
 
 /**
@@ -212,11 +261,9 @@ struct dpsw_link_cfg {
 	u64 options;
 };
 
-int dpsw_if_set_link_cfg(struct fsl_mc_io *mc_io,
-			 u32 cmd_flags,
-			 u16 token,
-			 u16 if_id,
+int dpsw_if_set_link_cfg(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token, u16 if_id,
 			 struct dpsw_link_cfg *cfg);
+
 /**
  * struct dpsw_link_state - Structure representing DPSW link state
  * @rate: Rate
@@ -229,23 +276,8 @@ struct dpsw_link_state {
 	u8 up;
 };
 
-int dpsw_if_get_link_state(struct fsl_mc_io *mc_io,
-			   u32 cmd_flags,
-			   u16 token,
-			   u16 if_id,
-			   struct dpsw_link_state *state);
-
-int dpsw_if_set_flooding(struct fsl_mc_io *mc_io,
-			 u32 cmd_flags,
-			 u16 token,
-			 u16 if_id,
-			 u8 en);
-
-int dpsw_if_set_broadcast(struct fsl_mc_io *mc_io,
-			  u32 cmd_flags,
-			  u16 token,
-			  u16 if_id,
-			  u8 en);
+int dpsw_if_get_link_state(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+			   u16 if_id, struct dpsw_link_state *state);
 
 /**
  * struct dpsw_tci_cfg - Tag Control Information (TCI) configuration
@@ -266,24 +298,19 @@ struct dpsw_tci_cfg {
 	u16 vlan_id;
 };
 
-int dpsw_if_set_tci(struct fsl_mc_io *mc_io,
-		    u32 cmd_flags,
-		    u16 token,
-		    u16 if_id,
+int dpsw_if_set_tci(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token, u16 if_id,
 		    const struct dpsw_tci_cfg *cfg);
 
-int dpsw_if_get_tci(struct fsl_mc_io *mc_io,
-		    u32 cmd_flags,
-		    u16 token,
-		    u16 if_id,
+int dpsw_if_get_tci(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token, u16 if_id,
 		    struct dpsw_tci_cfg *cfg);
 
 /**
  * enum dpsw_stp_state - Spanning Tree Protocol (STP) states
- * @DPSW_STP_STATE_BLOCKING: Blocking state
+ * @DPSW_STP_STATE_DISABLED: Disabled state
  * @DPSW_STP_STATE_LISTENING: Listening state
  * @DPSW_STP_STATE_LEARNING: Learning state
  * @DPSW_STP_STATE_FORWARDING: Forwarding state
+ * @DPSW_STP_STATE_BLOCKING: Blocking state
  *
  */
 enum dpsw_stp_state {
@@ -304,10 +331,7 @@ struct dpsw_stp_cfg {
 	enum dpsw_stp_state state;
 };
 
-int dpsw_if_set_stp(struct fsl_mc_io *mc_io,
-		    u32 cmd_flags,
-		    u16 token,
-		    u16 if_id,
+int dpsw_if_set_stp(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token, u16 if_id,
 		    const struct dpsw_stp_cfg *cfg);
 
 /**
@@ -355,28 +379,43 @@ enum dpsw_counter {
 	DPSW_CNT_ING_NO_BUFF_DISCARD = 0xc,
 };
 
-int dpsw_if_get_counter(struct fsl_mc_io *mc_io,
-			u32 cmd_flags,
-			u16 token,
-			u16 if_id,
-			enum dpsw_counter type,
-			u64 *counter);
+int dpsw_if_get_counter(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+			u16 if_id, enum dpsw_counter type, u64 *counter);
 
-int dpsw_if_enable(struct fsl_mc_io *mc_io,
-		   u32 cmd_flags,
-		   u16 token,
-		   u16 if_id);
+int dpsw_if_enable(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token, u16 if_id);
 
-int dpsw_if_disable(struct fsl_mc_io *mc_io,
-		    u32 cmd_flags,
-		    u16 token,
-		    u16 if_id);
+int dpsw_if_disable(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token, u16 if_id);
 
-int dpsw_if_set_max_frame_length(struct fsl_mc_io *mc_io,
-				 u32 cmd_flags,
-				 u16 token,
-				 u16 if_id,
-				 u16 frame_length);
+/**
+ * struct dpsw_if_attr - Structure representing DPSW interface attributes
+ * @num_tcs: Number of traffic classes
+ * @rate: Transmit rate in bits per second
+ * @options: Interface configuration options (bitmap)
+ * @enabled: Indicates if interface is enabled
+ * @accept_all_vlan: The device discards/accepts incoming frames
+ *		for VLANs that do not include this interface
+ * @admit_untagged: When set to 'DPSW_ADMIT_ONLY_VLAN_TAGGED', the device
+ *		discards untagged frames or priority-tagged frames received on
+ *		this interface;
+ *		When set to 'DPSW_ADMIT_ALL', untagged frames or priority-
+ *		tagged frames received on this interface are accepted
+ * @qdid: control frames transmit qdid
+ */
+struct dpsw_if_attr {
+	u8 num_tcs;
+	u32 rate;
+	u32 options;
+	int enabled;
+	int accept_all_vlan;
+	enum dpsw_accepted_frames admit_untagged;
+	u16 qdid;
+};
+
+int dpsw_if_get_attributes(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+			   u16 if_id, struct dpsw_if_attr *attr);
+
+int dpsw_if_set_max_frame_length(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+				 u16 if_id, u16 frame_length);
 
 /**
  * struct dpsw_vlan_cfg - VLAN Configuration
@@ -386,11 +425,10 @@ struct dpsw_vlan_cfg {
 	u16 fdb_id;
 };
 
-int dpsw_vlan_add(struct fsl_mc_io *mc_io,
-		  u32 cmd_flags,
-		  u16 token,
-		  u16 vlan_id,
-		  const struct dpsw_vlan_cfg *cfg);
+int dpsw_vlan_add(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+		  u16 vlan_id, const struct dpsw_vlan_cfg *cfg);
+
+#define DPSW_VLAN_ADD_IF_OPT_FDB_ID            0x0001
 
 /**
  * struct dpsw_vlan_if_cfg - Set of VLAN Interfaces
@@ -398,39 +436,31 @@ int dpsw_vlan_add(struct fsl_mc_io *mc_io,
  *		list for this VLAN
  * @if_id: The set of interfaces that are
  *		assigned to the egress list for this VLAN
+ * @options: Options map for this command (DPSW_VLAN_ADD_IF_OPT_FDB_ID)
+ * @fdb_id: FDB id to be used by this VLAN on these specific interfaces
+ *		(taken into account only if the DPSW_VLAN_ADD_IF_OPT_FDB_ID is
+ *		specified in the options field)
  */
 struct dpsw_vlan_if_cfg {
 	u16 num_ifs;
+	u16 options;
 	u16 if_id[DPSW_MAX_IF];
+	u16 fdb_id;
 };
 
-int dpsw_vlan_add_if(struct fsl_mc_io *mc_io,
-		     u32 cmd_flags,
-		     u16 token,
-		     u16 vlan_id,
-		     const struct dpsw_vlan_if_cfg *cfg);
+int dpsw_vlan_add_if(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+		     u16 vlan_id, const struct dpsw_vlan_if_cfg *cfg);
 
-int dpsw_vlan_add_if_untagged(struct fsl_mc_io *mc_io,
-			      u32 cmd_flags,
-			      u16 token,
-			      u16 vlan_id,
-			      const struct dpsw_vlan_if_cfg *cfg);
+int dpsw_vlan_add_if_untagged(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+			      u16 vlan_id, const struct dpsw_vlan_if_cfg *cfg);
 
-int dpsw_vlan_remove_if(struct fsl_mc_io *mc_io,
-			u32 cmd_flags,
-			u16 token,
-			u16 vlan_id,
-			const struct dpsw_vlan_if_cfg *cfg);
+int dpsw_vlan_remove_if(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+			u16 vlan_id, const struct dpsw_vlan_if_cfg *cfg);
 
-int dpsw_vlan_remove_if_untagged(struct fsl_mc_io *mc_io,
-				 u32 cmd_flags,
-				 u16 token,
-				 u16 vlan_id,
-				 const struct dpsw_vlan_if_cfg *cfg);
+int dpsw_vlan_remove_if_untagged(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+				 u16 vlan_id, const struct dpsw_vlan_if_cfg *cfg);
 
-int dpsw_vlan_remove(struct fsl_mc_io *mc_io,
-		     u32 cmd_flags,
-		     u16 token,
+int dpsw_vlan_remove(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
 		     u16 vlan_id);
 
 /**
@@ -455,17 +485,11 @@ struct dpsw_fdb_unicast_cfg {
 	u16 if_egress;
 };
 
-int dpsw_fdb_add_unicast(struct fsl_mc_io *mc_io,
-			 u32 cmd_flags,
-			 u16 token,
-			 u16 fdb_id,
-			 const struct dpsw_fdb_unicast_cfg *cfg);
+int dpsw_fdb_add_unicast(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+			 u16 fdb_id, const struct dpsw_fdb_unicast_cfg *cfg);
 
-int dpsw_fdb_remove_unicast(struct fsl_mc_io *mc_io,
-			    u32 cmd_flags,
-			    u16 token,
-			    u16 fdb_id,
-			    const struct dpsw_fdb_unicast_cfg *cfg);
+int dpsw_fdb_remove_unicast(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+			    u16 fdb_id, const struct dpsw_fdb_unicast_cfg *cfg);
 
 #define DPSW_FDB_ENTRY_TYPE_DYNAMIC  BIT(0)
 #define DPSW_FDB_ENTRY_TYPE_UNICAST  BIT(1)
@@ -484,13 +508,8 @@ struct fdb_dump_entry {
 	u8 if_mask[8];
 };
 
-int dpsw_fdb_dump(struct fsl_mc_io *mc_io,
-		  u32 cmd_flags,
-		  u16 token,
-		  u16 fdb_id,
-		  u64 iova_addr,
-		  u32 iova_size,
-		  u16 *num_entries);
+int dpsw_fdb_dump(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token, u16 fdb_id,
+		  u64 iova_addr, u32 iova_size, u16 *num_entries);
 
 /**
  * struct dpsw_fdb_multicast_cfg - Multi-cast entry configuration
@@ -506,17 +525,11 @@ struct dpsw_fdb_multicast_cfg {
 	u16 if_id[DPSW_MAX_IF];
 };
 
-int dpsw_fdb_add_multicast(struct fsl_mc_io *mc_io,
-			   u32 cmd_flags,
-			   u16 token,
-			   u16 fdb_id,
-			   const struct dpsw_fdb_multicast_cfg *cfg);
+int dpsw_fdb_add_multicast(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+			   u16 fdb_id, const struct dpsw_fdb_multicast_cfg *cfg);
 
-int dpsw_fdb_remove_multicast(struct fsl_mc_io *mc_io,
-			      u32 cmd_flags,
-			      u16 token,
-			      u16 fdb_id,
-			      const struct dpsw_fdb_multicast_cfg *cfg);
+int dpsw_fdb_remove_multicast(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+			      u16 fdb_id, const struct dpsw_fdb_multicast_cfg *cfg);
 
 /**
  * enum dpsw_fdb_learning_mode - Auto-learning modes
@@ -555,40 +568,61 @@ enum dpsw_fdb_learning_mode {
 	DPSW_FDB_LEARNING_MODE_SECURE = 3
 };
 
-int dpsw_fdb_set_learning_mode(struct fsl_mc_io *mc_io,
-			       u32 cmd_flags,
-			       u16 token,
-			       u16 fdb_id,
-			       enum dpsw_fdb_learning_mode mode);
-
 /**
  * struct dpsw_fdb_attr - FDB Attributes
  * @max_fdb_entries: Number of FDB entries
- * @fdb_aging_time: Aging time in seconds
+ * @fdb_ageing_time: Ageing time in seconds
  * @learning_mode: Learning mode
  * @num_fdb_mc_groups: Current number of multicast groups
  * @max_fdb_mc_groups: Maximum number of multicast groups
  */
 struct dpsw_fdb_attr {
 	u16 max_fdb_entries;
-	u16 fdb_aging_time;
+	u16 fdb_ageing_time;
 	enum dpsw_fdb_learning_mode learning_mode;
 	u16 num_fdb_mc_groups;
 	u16 max_fdb_mc_groups;
 };
 
-int dpsw_get_api_version(struct fsl_mc_io *mc_io,
-			 u32 cmd_flags,
-			 u16 *major_ver,
-			 u16 *minor_ver);
+int dpsw_get_api_version(struct fsl_mc_io *mc_io, u32 cmd_flags,
+			 u16 *major_ver, u16 *minor_ver);
 
 int dpsw_if_get_port_mac_addr(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
 			      u16 if_id, u8 mac_addr[6]);
 
-int dpsw_if_get_primary_mac_addr(struct fsl_mc_io *mc_io, u32 cmd_flags,
-				 u16 token, u16 if_id, u8 mac_addr[6]);
+/**
+ * struct dpsw_fdb_cfg  - FDB Configuration
+ * @num_fdb_entries: Number of FDB entries
+ * @fdb_ageing_time: Ageing time in seconds
+ */
+struct dpsw_fdb_cfg {
+	u16 num_fdb_entries;
+	u16 fdb_ageing_time;
+};
 
-int dpsw_if_set_primary_mac_addr(struct fsl_mc_io *mc_io, u32 cmd_flags,
-				 u16 token, u16 if_id, u8 mac_addr[6]);
+int dpsw_fdb_add(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token, u16 *fdb_id,
+		 const struct dpsw_fdb_cfg *cfg);
+
+int dpsw_fdb_remove(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token, u16 fdb_id);
+
+/**
+ * enum dpsw_flood_type - Define the flood type of a DPSW object
+ * @DPSW_BROADCAST: Broadcast flooding
+ * @DPSW_FLOODING: Unknown flooding
+ */
+enum dpsw_flood_type {
+	DPSW_BROADCAST = 0,
+	DPSW_FLOODING,
+};
+
+struct dpsw_egress_flood_cfg {
+	u16 fdb_id;
+	enum dpsw_flood_type flood_type;
+	u16 num_ifs;
+	u16 if_id[DPSW_MAX_IF];
+};
+
+int dpsw_set_egress_flood(struct fsl_mc_io *mc_io, u32 cmd_flags, u16 token,
+			  const struct dpsw_egress_flood_cfg *cfg);
 
 #endif /* __FSL_DPSW_H */
