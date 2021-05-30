@@ -1,4 +1,4 @@
-/**
+/*
  * Marvell NFC-over-I2C driver: I2C interface related functions
  *
  * Copyright (C) 2015, Marvell International Ltd.
@@ -46,11 +46,6 @@ static int nfcmrvl_i2c_read(struct nfcmrvl_i2c_drv_data *drv_data,
 	ret = i2c_master_recv(drv_data->i2c, (u8 *)&nci_hdr, NCI_CTRL_HDR_SIZE);
 	if (ret != NCI_CTRL_HDR_SIZE) {
 		nfc_err(&drv_data->i2c->dev, "cannot read NCI header\n");
-		return -EBADMSG;
-	}
-
-	if (nci_hdr.plen > NCI_MAX_PAYLOAD_SIZE) {
-		nfc_err(&drv_data->i2c->dev, "invalid packet payload size\n");
 		return -EBADMSG;
 	}
 
@@ -260,7 +255,7 @@ static int nfcmrvl_i2c_remove(struct i2c_client *client)
 }
 
 
-static const struct of_device_id of_nfcmrvl_i2c_match[] = {
+static const struct of_device_id of_nfcmrvl_i2c_match[] __maybe_unused = {
 	{ .compatible = "marvell,nfc-i2c", },
 	{},
 };

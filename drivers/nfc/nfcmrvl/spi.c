@@ -1,4 +1,4 @@
-/**
+/*
  * Marvell NFC-over-SPI driver: SPI interface related functions
  *
  * Copyright (C) 2015, Marvell International Ltd.
@@ -196,7 +196,7 @@ static int nfcmrvl_spi_remove(struct spi_device *spi)
 	return 0;
 }
 
-static const struct of_device_id of_nfcmrvl_spi_match[] = {
+static const struct of_device_id of_nfcmrvl_spi_match[] __maybe_unused = {
 	{ .compatible = "marvell,nfc-spi", },
 	{},
 };
