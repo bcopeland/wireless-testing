@@ -7,13 +7,13 @@ MPTCP Sysfs variables
 /proc/sys/net/mptcp/* Variables
 ===============================
 
-enabled - INTEGER
+enabled - BOOLEAN
 	Control whether MPTCP sockets can be created.
 
-	MPTCP sockets can be created if the value is nonzero. This is
-	a per-namespace sysctl.
+	MPTCP sockets can be created if the value is 1. This is a
+	per-namespace sysctl.
 
-	Default: 1
+	Default: 1 (enabled)
 
 add_addr_timeout - INTEGER (seconds)
 	Set the timeout after which an ADD_ADDR control message will be
@@ -24,3 +24,11 @@ add_addr_timeout - INTEGER (seconds)
 	sysctl.
 
 	Default: 120
+
+checksum_enabled - BOOLEAN
+	Control whether DSS checksum can be enabled.
+
+	DSS checksum can be enabled if the value is nonzero. This is a
+	per-namespace sysctl.
+
+	Default: 0

@@ -40,7 +40,7 @@
 	((struct smp_dev *)((struct l2cap_chan *)((hdev)->smp_data))->data)
 
 /* Low-level debug macros to be used for stuff that we don't want
- * accidentially in dmesg, i.e. the values of the various crypto keys
+ * accidentally in dmesg, i.e. the values of the various crypto keys
  * and the inputs & outputs of crypto functions.
  */
 #ifdef DEBUG
@@ -560,7 +560,7 @@ int smp_generate_oob(struct hci_dev *hdev, u8 hash[16], u8 rand[16])
 				return err;
 
 			/* This is unlikely, but we need to check that
-			 * we didn't accidentially generate a debug key.
+			 * we didn't accidentally generate a debug key.
 			 */
 			if (crypto_memneq(smp->local_pk, debug_pk, 64))
 				break;
@@ -1902,7 +1902,7 @@ static u8 sc_send_public_key(struct smp_chan *smp)
 				return SMP_UNSPECIFIED;
 
 			/* This is unlikely, but we need to check that
-			 * we didn't accidentially generate a debug key.
+			 * we didn't accidentally generate a debug key.
 			 */
 			if (crypto_memneq(smp->local_pk, debug_pk, 64))
 				break;
@@ -3229,7 +3229,7 @@ static inline struct l2cap_chan *smp_new_conn_cb(struct l2cap_chan *pchan)
 {
 	struct l2cap_chan *chan;
 
-	bt_dev_dbg(pchan->conn->hcon->hdev, "pchan %p", pchan);
+	BT_DBG("pchan %p", pchan);
 
 	chan = l2cap_chan_create();
 	if (!chan)
@@ -3250,7 +3250,7 @@ static inline struct l2cap_chan *smp_new_conn_cb(struct l2cap_chan *pchan)
 	 */
 	atomic_set(&chan->nesting, L2CAP_NESTING_SMP);
 
-	bt_dev_dbg(pchan->conn->hcon->hdev, "created chan %p", chan);
+	BT_DBG("created chan %p", chan);
 
 	return chan;
 }
@@ -3354,7 +3354,7 @@ static void smp_del_chan(struct l2cap_chan *chan)
 {
 	struct smp_dev *smp;
 
-	bt_dev_dbg(chan->conn->hcon->hdev, "chan %p", chan);
+	BT_DBG("chan %p", chan);
 
 	smp = chan->data;
 	if (smp) {
