@@ -11,6 +11,9 @@ struct device;
 struct ipa;
 struct ipa_clock_data;
 
+/* IPA device power management function block */
+extern const struct dev_pm_ops ipa_pm_ops;
+
 /**
  * ipa_clock_rate() - Return the current IPA core clock rate
  * @ipa:	IPA structure
@@ -18,6 +21,38 @@ struct ipa_clock_data;
  * Return: The current clock rate (in Hz), or 0.
  */
 u32 ipa_clock_rate(struct ipa *ipa);
+
+/**
+ * ipa_power_modem_queue_stop() - Possibly stop the modem netdev TX queue
+ * @ipa:	IPA pointer
+ */
+void ipa_power_modem_queue_stop(struct ipa *ipa);
+
+/**
+ * ipa_power_modem_queue_wake() - Possibly wake the modem netdev TX queue
+ * @ipa:	IPA pointer
+ */
+void ipa_power_modem_queue_wake(struct ipa *ipa);
+
+/**
+ * ipa_power_modem_queue_active() - Report modem netdev TX queue active
+ * @ipa:	IPA pointer
+ */
+void ipa_power_modem_queue_active(struct ipa *ipa);
+
+/**
+ * ipa_power_setup() - Set up IPA power management
+ * @ipa:	IPA pointer
+ *
+ * Return:	0 if successful, or a negative error code
+ */
+int ipa_power_setup(struct ipa *ipa);
+
+/**
+ * ipa_power_teardown() - Inverse of ipa_power_setup()
+ * @ipa:	IPA pointer
+ */
+void ipa_power_teardown(struct ipa *ipa);
 
 /**
  * ipa_clock_init() - Initialize IPA clocking
@@ -34,31 +69,5 @@ struct ipa_clock *ipa_clock_init(struct device *dev,
  * @clock:	IPA clock pointer
  */
 void ipa_clock_exit(struct ipa_clock *clock);
-
-/**
- * ipa_clock_get() - Get an IPA clock reference
- * @ipa:	IPA pointer
- *
- * This call blocks if this is the first reference.
- */
-void ipa_clock_get(struct ipa *ipa);
-
-/**
- * ipa_clock_get_additional() - Get an IPA clock reference if not first
- * @ipa:	IPA pointer
- *
- * This returns immediately, and only takes a reference if not the first
- */
-bool ipa_clock_get_additional(struct ipa *ipa);
-
-/**
- * ipa_clock_put() - Drop an IPA clock reference
- * @ipa:	IPA pointer
- *
- * This drops a clock reference.  If the last reference is being dropped,
- * the clock is stopped and RX endpoints are suspended.  This call will
- * not block unless the last reference is dropped.
- */
-void ipa_clock_put(struct ipa *ipa);
 
 #endif /* _IPA_CLOCK_H_ */
