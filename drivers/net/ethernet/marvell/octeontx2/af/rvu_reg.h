@@ -53,7 +53,7 @@
 #define RVU_AF_SMMU_TXN_REQ		    (0x6008)
 #define RVU_AF_SMMU_ADDR_RSP_STS	    (0x6010)
 #define RVU_AF_SMMU_ADDR_TLN		    (0x6018)
-#define RVU_AF_SMMU_TLN_FLIT1		    (0x6030)
+#define RVU_AF_SMMU_TLN_FLIT0		    (0x6020)
 
 /* Admin function's privileged PF/VF registers */
 #define RVU_PRIV_CONST                      (0x8000000)
@@ -269,6 +269,8 @@
 #define NIX_AF_DEBUG_NPC_RESP_DATAX(a)          (0x680 | (a) << 3)
 #define NIX_AF_SMQX_CFG(a)                      (0x700 | (a) << 16)
 #define NIX_AF_SQM_DBG_CTL_STATUS               (0x750)
+#define NIX_AF_DWRR_SDP_MTU                     (0x790)
+#define NIX_AF_DWRR_RPM_MTU                     (0x7A0)
 #define NIX_AF_PSE_CHANNEL_LEVEL                (0x800)
 #define NIX_AF_PSE_SHAPER_CFG                   (0x810)
 #define NIX_AF_TX_EXPR_CREDIT			(0x830)
