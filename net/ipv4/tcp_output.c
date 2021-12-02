@@ -1359,7 +1359,7 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 #ifdef CONFIG_TCP_MD5SIG
 	/* Calculate the MD5 hash, as we have all we need now */
 	if (md5) {
-		sk_nocaps_add(sk, NETIF_F_GSO_MASK);
+		sk_gso_disable(sk);
 		tp->af_specific->calc_md5_hash(opts.hash_location,
 					       md5, sk, skb);
 	}
@@ -2524,8 +2524,11 @@ static bool tcp_small_queue_check(struct sock *sk, const struct sk_buff *skb,
 		 * test again the condition.
 		 */
 		smp_mb__after_atomic();
-		if (refcount_read(&sk->sk_wmem_alloc) > limit)
+		if (refcount_read(&sk->sk_wmem_alloc) > limit) {
+			NET_INC_STATS(sock_net(sk),
+				      LINUX_MIB_TCPSMALLQUEUEFAILURE);
 			return true;
+		}
 	}
 	return false;
 }

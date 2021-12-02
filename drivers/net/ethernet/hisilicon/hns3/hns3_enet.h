@@ -621,6 +621,11 @@ static inline int ring_space(struct hns3_enet_ring *ring)
 			(begin - end)) - 1;
 }
 
+static inline u32 hns3_tqp_read_reg(struct hns3_enet_ring *ring, u32 reg)
+{
+	return readl_relaxed(ring->tqp->io_base + reg);
+}
+
 static inline u32 hns3_read_reg(void __iomem *base, u32 reg)
 {
 	return readl(base + reg);
@@ -705,6 +710,8 @@ void hns3_set_vector_coalesce_tx_ql(struct hns3_enet_tqp_vector *tqp_vector,
 				    u32 ql_value);
 
 void hns3_request_update_promisc_mode(struct hnae3_handle *handle);
+int hns3_reset_notify(struct hnae3_handle *handle,
+		      enum hnae3_reset_notify_type type);
 
 #ifdef CONFIG_HNS3_DCB
 void hns3_dcbnl_setup(struct hnae3_handle *handle);

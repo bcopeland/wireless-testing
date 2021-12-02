@@ -2653,11 +2653,38 @@ static u8 hclge_check_speed_dup(u8 duplex, int speed)
 	return duplex;
 }
 
+static struct hclge_mac_speed_map hclge_mac_speed_map_to_fw[] = {
+	{HCLGE_MAC_SPEED_10M, HCLGE_FW_MAC_SPEED_10M},
+	{HCLGE_MAC_SPEED_100M, HCLGE_FW_MAC_SPEED_100M},
+	{HCLGE_MAC_SPEED_1G, HCLGE_FW_MAC_SPEED_1G},
+	{HCLGE_MAC_SPEED_10G, HCLGE_FW_MAC_SPEED_10G},
+	{HCLGE_MAC_SPEED_25G, HCLGE_FW_MAC_SPEED_25G},
+	{HCLGE_MAC_SPEED_40G, HCLGE_FW_MAC_SPEED_40G},
+	{HCLGE_MAC_SPEED_50G, HCLGE_FW_MAC_SPEED_50G},
+	{HCLGE_MAC_SPEED_100G, HCLGE_FW_MAC_SPEED_100G},
+	{HCLGE_MAC_SPEED_200G, HCLGE_FW_MAC_SPEED_200G},
+};
+
+static int hclge_convert_to_fw_speed(u32 speed_drv, u32 *speed_fw)
+{
+	u16 i;
+
+	for (i = 0; i < ARRAY_SIZE(hclge_mac_speed_map_to_fw); i++) {
+		if (hclge_mac_speed_map_to_fw[i].speed_drv == speed_drv) {
+			*speed_fw = hclge_mac_speed_map_to_fw[i].speed_fw;
+			return 0;
+		}
+	}
+
+	return -EINVAL;
+}
+
 static int hclge_cfg_mac_speed_dup_hw(struct hclge_dev *hdev, int speed,
 				      u8 duplex)
 {
 	struct hclge_config_mac_speed_dup_cmd *req;
 	struct hclge_desc desc;
+	u32 speed_fw;
 	int ret;
 
 	req = (struct hclge_config_mac_speed_dup_cmd *)desc.data;
@@ -2667,48 +2694,14 @@ static int hclge_cfg_mac_speed_dup_hw(struct hclge_dev *hdev, int speed,
 	if (duplex)
 		hnae3_set_bit(req->speed_dup, HCLGE_CFG_DUPLEX_B, 1);
 
-	switch (speed) {
-	case HCLGE_MAC_SPEED_10M:
-		hnae3_set_field(req->speed_dup, HCLGE_CFG_SPEED_M,
-				HCLGE_CFG_SPEED_S, HCLGE_FW_MAC_SPEED_10M);
-		break;
-	case HCLGE_MAC_SPEED_100M:
-		hnae3_set_field(req->speed_dup, HCLGE_CFG_SPEED_M,
-				HCLGE_CFG_SPEED_S, HCLGE_FW_MAC_SPEED_100M);
-		break;
-	case HCLGE_MAC_SPEED_1G:
-		hnae3_set_field(req->speed_dup, HCLGE_CFG_SPEED_M,
-				HCLGE_CFG_SPEED_S, HCLGE_FW_MAC_SPEED_1G);
-		break;
-	case HCLGE_MAC_SPEED_10G:
-		hnae3_set_field(req->speed_dup, HCLGE_CFG_SPEED_M,
-				HCLGE_CFG_SPEED_S, HCLGE_FW_MAC_SPEED_10G);
-		break;
-	case HCLGE_MAC_SPEED_25G:
-		hnae3_set_field(req->speed_dup, HCLGE_CFG_SPEED_M,
-				HCLGE_CFG_SPEED_S, HCLGE_FW_MAC_SPEED_25G);
-		break;
-	case HCLGE_MAC_SPEED_40G:
-		hnae3_set_field(req->speed_dup, HCLGE_CFG_SPEED_M,
-				HCLGE_CFG_SPEED_S, HCLGE_FW_MAC_SPEED_40G);
-		break;
-	case HCLGE_MAC_SPEED_50G:
-		hnae3_set_field(req->speed_dup, HCLGE_CFG_SPEED_M,
-				HCLGE_CFG_SPEED_S, HCLGE_FW_MAC_SPEED_50G);
-		break;
-	case HCLGE_MAC_SPEED_100G:
-		hnae3_set_field(req->speed_dup, HCLGE_CFG_SPEED_M,
-				HCLGE_CFG_SPEED_S, HCLGE_FW_MAC_SPEED_100G);
-		break;
-	case HCLGE_MAC_SPEED_200G:
-		hnae3_set_field(req->speed_dup, HCLGE_CFG_SPEED_M,
-				HCLGE_CFG_SPEED_S, HCLGE_FW_MAC_SPEED_200G);
-		break;
-	default:
+	ret = hclge_convert_to_fw_speed(speed, &speed_fw);
+	if (ret) {
 		dev_err(&hdev->pdev->dev, "invalid speed (%d)\n", speed);
-		return -EINVAL;
+		return ret;
 	}
 
+	hnae3_set_field(req->speed_dup, HCLGE_CFG_SPEED_M, HCLGE_CFG_SPEED_S,
+			speed_fw);
 	hnae3_set_bit(req->mac_change_fec_en, HCLGE_CFG_MAC_SPEED_CHANGE_EN_B,
 		      1);
 
@@ -2933,16 +2926,20 @@ static int hclge_mac_init(struct hclge_dev *hdev)
 static void hclge_mbx_task_schedule(struct hclge_dev *hdev)
 {
 	if (!test_bit(HCLGE_STATE_REMOVING, &hdev->state) &&
-	    !test_and_set_bit(HCLGE_STATE_MBX_SERVICE_SCHED, &hdev->state))
+	    !test_and_set_bit(HCLGE_STATE_MBX_SERVICE_SCHED, &hdev->state)) {
+		hdev->last_mbx_scheduled = jiffies;
 		mod_delayed_work(hclge_wq, &hdev->service_task, 0);
+	}
 }
 
 static void hclge_reset_task_schedule(struct hclge_dev *hdev)
 {
 	if (!test_bit(HCLGE_STATE_REMOVING, &hdev->state) &&
 	    test_bit(HCLGE_STATE_SERVICE_INITED, &hdev->state) &&
-	    !test_and_set_bit(HCLGE_STATE_RST_SERVICE_SCHED, &hdev->state))
+	    !test_and_set_bit(HCLGE_STATE_RST_SERVICE_SCHED, &hdev->state)) {
+		hdev->last_rst_scheduled = jiffies;
 		mod_delayed_work(hclge_wq, &hdev->service_task, 0);
+	}
 }
 
 static void hclge_errhand_task_schedule(struct hclge_dev *hdev)
@@ -3831,6 +3828,13 @@ static void hclge_mailbox_service_task(struct hclge_dev *hdev)
 	    test_and_set_bit(HCLGE_STATE_MBX_HANDLING, &hdev->state))
 		return;
 
+	if (time_is_before_jiffies(hdev->last_mbx_scheduled +
+				   HCLGE_MBX_SCHED_TIMEOUT))
+		dev_warn(&hdev->pdev->dev,
+			 "mbx service task is scheduled after %ums on cpu%u!\n",
+			 jiffies_to_msecs(jiffies - hdev->last_mbx_scheduled),
+			 smp_processor_id());
+
 	hclge_mbx_handler(hdev);
 
 	clear_bit(HCLGE_STATE_MBX_HANDLING, &hdev->state);
@@ -4479,6 +4483,13 @@ static void hclge_reset_service_task(struct hclge_dev *hdev)
 {
 	if (!test_and_clear_bit(HCLGE_STATE_RST_SERVICE_SCHED, &hdev->state))
 		return;
+
+	if (time_is_before_jiffies(hdev->last_rst_scheduled +
+				   HCLGE_RESET_SCHED_TIMEOUT))
+		dev_warn(&hdev->pdev->dev,
+			 "reset service task is scheduled after %ums on cpu%u!\n",
+			 jiffies_to_msecs(jiffies - hdev->last_rst_scheduled),
+			 smp_processor_id());
 
 	down(&hdev->reset_sem);
 	set_bit(HCLGE_STATE_RST_HANDLING, &hdev->state);
@@ -8743,6 +8754,7 @@ int hclge_update_mac_list(struct hclge_vport *vport,
 			  enum HCLGE_MAC_ADDR_TYPE mac_type,
 			  const unsigned char *addr)
 {
+	char format_mac_addr[HNAE3_FORMAT_MAC_ADDR_LEN];
 	struct hclge_dev *hdev = vport->back;
 	struct hclge_mac_node *mac_node;
 	struct list_head *list;
@@ -8767,9 +8779,10 @@ int hclge_update_mac_list(struct hclge_vport *vport,
 	/* if this address is never added, unnecessary to delete */
 	if (state == HCLGE_MAC_TO_DEL) {
 		spin_unlock_bh(&vport->mac_list_lock);
+		hnae3_format_mac_addr(format_mac_addr, addr);
 		dev_err(&hdev->pdev->dev,
-			"failed to delete address %pM from mac list\n",
-			addr);
+			"failed to delete address %s from mac list\n",
+			format_mac_addr);
 		return -ENOENT;
 	}
 
@@ -8802,6 +8815,7 @@ static int hclge_add_uc_addr(struct hnae3_handle *handle,
 int hclge_add_uc_addr_common(struct hclge_vport *vport,
 			     const unsigned char *addr)
 {
+	char format_mac_addr[HNAE3_FORMAT_MAC_ADDR_LEN];
 	struct hclge_dev *hdev = vport->back;
 	struct hclge_mac_vlan_tbl_entry_cmd req;
 	struct hclge_desc desc;
@@ -8812,9 +8826,10 @@ int hclge_add_uc_addr_common(struct hclge_vport *vport,
 	if (is_zero_ether_addr(addr) ||
 	    is_broadcast_ether_addr(addr) ||
 	    is_multicast_ether_addr(addr)) {
+		hnae3_format_mac_addr(format_mac_addr, addr);
 		dev_err(&hdev->pdev->dev,
-			"Set_uc mac err! invalid mac:%pM. is_zero:%d,is_br=%d,is_mul=%d\n",
-			 addr, is_zero_ether_addr(addr),
+			"Set_uc mac err! invalid mac:%s. is_zero:%d,is_br=%d,is_mul=%d\n",
+			 format_mac_addr, is_zero_ether_addr(addr),
 			 is_broadcast_ether_addr(addr),
 			 is_multicast_ether_addr(addr));
 		return -EINVAL;
@@ -8871,6 +8886,7 @@ static int hclge_rm_uc_addr(struct hnae3_handle *handle,
 int hclge_rm_uc_addr_common(struct hclge_vport *vport,
 			    const unsigned char *addr)
 {
+	char format_mac_addr[HNAE3_FORMAT_MAC_ADDR_LEN];
 	struct hclge_dev *hdev = vport->back;
 	struct hclge_mac_vlan_tbl_entry_cmd req;
 	int ret;
@@ -8879,8 +8895,9 @@ int hclge_rm_uc_addr_common(struct hclge_vport *vport,
 	if (is_zero_ether_addr(addr) ||
 	    is_broadcast_ether_addr(addr) ||
 	    is_multicast_ether_addr(addr)) {
-		dev_dbg(&hdev->pdev->dev, "Remove mac err! invalid mac:%pM.\n",
-			addr);
+		hnae3_format_mac_addr(format_mac_addr, addr);
+		dev_dbg(&hdev->pdev->dev, "Remove mac err! invalid mac:%s.\n",
+			format_mac_addr);
 		return -EINVAL;
 	}
 
@@ -8911,6 +8928,7 @@ static int hclge_add_mc_addr(struct hnae3_handle *handle,
 int hclge_add_mc_addr_common(struct hclge_vport *vport,
 			     const unsigned char *addr)
 {
+	char format_mac_addr[HNAE3_FORMAT_MAC_ADDR_LEN];
 	struct hclge_dev *hdev = vport->back;
 	struct hclge_mac_vlan_tbl_entry_cmd req;
 	struct hclge_desc desc[3];
@@ -8919,9 +8937,10 @@ int hclge_add_mc_addr_common(struct hclge_vport *vport,
 
 	/* mac addr check */
 	if (!is_multicast_ether_addr(addr)) {
+		hnae3_format_mac_addr(format_mac_addr, addr);
 		dev_err(&hdev->pdev->dev,
-			"Add mc mac err! invalid mac:%pM.\n",
-			 addr);
+			"Add mc mac err! invalid mac:%s.\n",
+			 format_mac_addr);
 		return -EINVAL;
 	}
 	memset(&req, 0, sizeof(req));
@@ -8973,6 +8992,7 @@ static int hclge_rm_mc_addr(struct hnae3_handle *handle,
 int hclge_rm_mc_addr_common(struct hclge_vport *vport,
 			    const unsigned char *addr)
 {
+	char format_mac_addr[HNAE3_FORMAT_MAC_ADDR_LEN];
 	struct hclge_dev *hdev = vport->back;
 	struct hclge_mac_vlan_tbl_entry_cmd req;
 	enum hclge_cmd_status status;
@@ -8980,9 +9000,10 @@ int hclge_rm_mc_addr_common(struct hclge_vport *vport,
 
 	/* mac addr check */
 	if (!is_multicast_ether_addr(addr)) {
+		hnae3_format_mac_addr(format_mac_addr, addr);
 		dev_dbg(&hdev->pdev->dev,
-			"Remove mc mac err! invalid mac:%pM.\n",
-			 addr);
+			"Remove mc mac err! invalid mac:%s.\n",
+			 format_mac_addr);
 		return -EINVAL;
 	}
 
@@ -9422,16 +9443,18 @@ static int hclge_set_vf_mac(struct hnae3_handle *handle, int vf,
 			    u8 *mac_addr)
 {
 	struct hclge_vport *vport = hclge_get_vport(handle);
+	char format_mac_addr[HNAE3_FORMAT_MAC_ADDR_LEN];
 	struct hclge_dev *hdev = vport->back;
 
 	vport = hclge_get_vf_vport(hdev, vf);
 	if (!vport)
 		return -EINVAL;
 
+	hnae3_format_mac_addr(format_mac_addr, mac_addr);
 	if (ether_addr_equal(mac_addr, vport->vf_info.mac)) {
 		dev_info(&hdev->pdev->dev,
-			 "Specified MAC(=%pM) is same as before, no change committed!\n",
-			 mac_addr);
+			 "Specified MAC(=%s) is same as before, no change committed!\n",
+			 format_mac_addr);
 		return 0;
 	}
 
@@ -9439,13 +9462,13 @@ static int hclge_set_vf_mac(struct hnae3_handle *handle, int vf,
 
 	if (test_bit(HCLGE_VPORT_STATE_ALIVE, &vport->state)) {
 		dev_info(&hdev->pdev->dev,
-			 "MAC of VF %d has been set to %pM, and it will be reinitialized!\n",
-			 vf, mac_addr);
+			 "MAC of VF %d has been set to %s, and it will be reinitialized!\n",
+			 vf, format_mac_addr);
 		return hclge_inform_reset_assert_to_vf(vport);
 	}
 
-	dev_info(&hdev->pdev->dev, "MAC of VF %d has been set to %pM\n",
-		 vf, mac_addr);
+	dev_info(&hdev->pdev->dev, "MAC of VF %d has been set to %s\n",
+		 vf, format_mac_addr);
 	return 0;
 }
 
@@ -9549,6 +9572,7 @@ static int hclge_set_mac_addr(struct hnae3_handle *handle, const void *p,
 {
 	const unsigned char *new_addr = (const unsigned char *)p;
 	struct hclge_vport *vport = hclge_get_vport(handle);
+	char format_mac_addr[HNAE3_FORMAT_MAC_ADDR_LEN];
 	struct hclge_dev *hdev = vport->back;
 	unsigned char *old_addr = NULL;
 	int ret;
@@ -9557,9 +9581,10 @@ static int hclge_set_mac_addr(struct hnae3_handle *handle, const void *p,
 	if (is_zero_ether_addr(new_addr) ||
 	    is_broadcast_ether_addr(new_addr) ||
 	    is_multicast_ether_addr(new_addr)) {
+		hnae3_format_mac_addr(format_mac_addr, new_addr);
 		dev_err(&hdev->pdev->dev,
-			"change uc mac err! invalid mac: %pM.\n",
-			 new_addr);
+			"change uc mac err! invalid mac: %s.\n",
+			 format_mac_addr);
 		return -EINVAL;
 	}
 
@@ -9577,9 +9602,10 @@ static int hclge_set_mac_addr(struct hnae3_handle *handle, const void *p,
 	spin_lock_bh(&vport->mac_list_lock);
 	ret = hclge_update_mac_node_for_dev_addr(vport, old_addr, new_addr);
 	if (ret) {
+		hnae3_format_mac_addr(format_mac_addr, new_addr);
 		dev_err(&hdev->pdev->dev,
-			"failed to change the mac addr:%pM, ret = %d\n",
-			new_addr, ret);
+			"failed to change the mac addr:%s, ret = %d\n",
+			format_mac_addr, ret);
 		spin_unlock_bh(&vport->mac_list_lock);
 
 		if (!is_first)
@@ -11556,24 +11582,20 @@ static void hclge_reset_prepare_general(struct hnae3_ae_dev *ae_dev,
 	int retry_cnt = 0;
 	int ret;
 
-retry:
-	down(&hdev->reset_sem);
-	set_bit(HCLGE_STATE_RST_HANDLING, &hdev->state);
-	hdev->reset_type = rst_type;
-	ret = hclge_reset_prepare(hdev);
-	if (ret || hdev->reset_pending) {
-		dev_err(&hdev->pdev->dev, "fail to prepare to reset, ret=%d\n",
-			ret);
-		if (hdev->reset_pending ||
-		    retry_cnt++ < HCLGE_RESET_RETRY_CNT) {
-			dev_err(&hdev->pdev->dev,
-				"reset_pending:0x%lx, retry_cnt:%d\n",
-				hdev->reset_pending, retry_cnt);
-			clear_bit(HCLGE_STATE_RST_HANDLING, &hdev->state);
-			up(&hdev->reset_sem);
-			msleep(HCLGE_RESET_RETRY_WAIT_MS);
-			goto retry;
-		}
+	while (retry_cnt++ < HCLGE_RESET_RETRY_CNT) {
+		down(&hdev->reset_sem);
+		set_bit(HCLGE_STATE_RST_HANDLING, &hdev->state);
+		hdev->reset_type = rst_type;
+		ret = hclge_reset_prepare(hdev);
+		if (!ret && !hdev->reset_pending)
+			break;
+
+		dev_err(&hdev->pdev->dev,
+			"failed to prepare to reset, ret=%d, reset_pending:0x%lx, retry_cnt:%d\n",
+			ret, hdev->reset_pending, retry_cnt);
+		clear_bit(HCLGE_STATE_RST_HANDLING, &hdev->state);
+		up(&hdev->reset_sem);
+		msleep(HCLGE_RESET_RETRY_WAIT_MS);
 	}
 
 	/* disable misc vector before reset done */
