@@ -178,6 +178,9 @@ struct otx2_hw {
 	u16			rqpool_cnt;
 	u16			sqpool_cnt;
 
+#define OTX2_DEFAULT_RBUF_LEN	2048
+	u16			rbuf_len;
+
 	/* NPA */
 	u32			stack_pg_ptrs;  /* No of ptrs per stack page */
 	u32			stack_pg_bytes; /* Size of stack page */
@@ -603,6 +606,7 @@ static inline void __cn10k_aura_freeptr(struct otx2_nic *pfvf, u64 aura,
 			size++;
 		tar_addr |=  ((size - 1) & 0x7) << 4;
 	}
+	dma_wmb();
 	memcpy((u64 *)lmt_info->lmt_addr, ptrs, sizeof(u64) * num_ptrs);
 	/* Perform LMTST flush */
 	cn10k_lmt_flush(val, tar_addr);

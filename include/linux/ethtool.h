@@ -70,9 +70,11 @@ enum {
 /**
  * struct kernel_ethtool_ringparam - RX/TX ring configuration
  * @rx_buf_len: Current length of buffers on the rx ring.
+ * @tcp_data_split: Scatter packet headers and data to separate buffers
  */
 struct kernel_ethtool_ringparam {
 	u32	rx_buf_len;
+	u8	tcp_data_split;
 };
 
 /**
@@ -111,7 +113,7 @@ struct ethtool_link_ext_state_info {
 		enum ethtool_link_ext_substate_bad_signal_integrity bad_signal_integrity;
 		enum ethtool_link_ext_substate_cable_issue cable_issue;
 		enum ethtool_link_ext_substate_module module;
-		u8 __link_ext_substate;
+		u32 __link_ext_substate;
 	};
 };
 
