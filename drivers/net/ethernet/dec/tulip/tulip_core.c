@@ -1399,8 +1399,10 @@ static int tulip_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	/* alloc_etherdev ensures aligned and zeroed private structures */
 	dev = alloc_etherdev (sizeof (*tp));
-	if (!dev)
+	if (!dev) {
+		pci_disable_device(pdev);
 		return -ENOMEM;
+	}
 
 	SET_NETDEV_DEV(dev, &pdev->dev);
 	if (pci_resource_len (pdev, 0) < tulip_tbl[chip_idx].io_size) {
@@ -1689,7 +1691,7 @@ static int tulip_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	dev->netdev_ops = &tulip_netdev_ops;
 	dev->watchdog_timeo = TX_TIMEOUT;
 #ifdef CONFIG_TULIP_NAPI
-	netif_napi_add(dev, &tp->napi, tulip_poll, 16);
+	netif_napi_add_weight(dev, &tp->napi, tulip_poll, 16);
 #endif
 	dev->ethtool_ops = &ops;
 
@@ -1785,6 +1787,7 @@ err_out_free_res:
 
 err_out_free_netdev:
 	free_netdev (dev);
+	pci_disable_device(pdev);
 	return -ENODEV;
 }
 
