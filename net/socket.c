@@ -1878,10 +1878,8 @@ out_fd:
 	return ERR_PTR(err);
 }
 
-int __sys_accept4_file(struct file *file, unsigned file_flags,
-		       struct sockaddr __user *upeer_sockaddr,
-		       int __user *upeer_addrlen, int flags,
-		       unsigned long nofile)
+static int __sys_accept4_file(struct file *file, struct sockaddr __user *upeer_sockaddr,
+			      int __user *upeer_addrlen, int flags)
 {
 	struct file *newfile;
 	int newfd;
@@ -1892,11 +1890,11 @@ int __sys_accept4_file(struct file *file, unsigned file_flags,
 	if (SOCK_NONBLOCK != O_NONBLOCK && (flags & SOCK_NONBLOCK))
 		flags = (flags & ~SOCK_NONBLOCK) | O_NONBLOCK;
 
-	newfd = __get_unused_fd_flags(flags, nofile);
+	newfd = get_unused_fd_flags(flags);
 	if (unlikely(newfd < 0))
 		return newfd;
 
-	newfile = do_accept(file, file_flags, upeer_sockaddr, upeer_addrlen,
+	newfile = do_accept(file, 0, upeer_sockaddr, upeer_addrlen,
 			    flags);
 	if (IS_ERR(newfile)) {
 		put_unused_fd(newfd);
@@ -1926,9 +1924,8 @@ int __sys_accept4(int fd, struct sockaddr __user *upeer_sockaddr,
 
 	f = fdget(fd);
 	if (f.file) {
-		ret = __sys_accept4_file(f.file, 0, upeer_sockaddr,
-						upeer_addrlen, flags,
-						rlimit(RLIMIT_NOFILE));
+		ret = __sys_accept4_file(f.file, upeer_sockaddr,
+					 upeer_addrlen, flags);
 		fdput(f);
 	}
 
@@ -2149,10 +2146,13 @@ SYSCALL_DEFINE4(send, int, fd, void __user *, buff, size_t, len,
 int __sys_recvfrom(int fd, void __user *ubuf, size_t size, unsigned int flags,
 		   struct sockaddr __user *addr, int __user *addr_len)
 {
+	struct sockaddr_storage address;
+	struct msghdr msg = {
+		/* Save some cycles and don't copy the address if not needed */
+		.msg_name = addr ? (struct sockaddr *)&address : NULL,
+	};
 	struct socket *sock;
 	struct iovec iov;
-	struct msghdr msg;
-	struct sockaddr_storage address;
 	int err, err2;
 	int fput_needed;
 
@@ -2163,14 +2163,6 @@ int __sys_recvfrom(int fd, void __user *ubuf, size_t size, unsigned int flags,
 	if (!sock)
 		goto out;
 
-	msg.msg_control = NULL;
-	msg.msg_controllen = 0;
-	/* Save some cycles and don't copy the address if not needed */
-	msg.msg_name = addr ? (struct sockaddr *)&address : NULL;
-	/* We assume all kernel code knows the size of sockaddr_storage */
-	msg.msg_namelen = 0;
-	msg.msg_iocb = NULL;
-	msg.msg_flags = 0;
 	if (sock->file->f_flags & O_NONBLOCK)
 		flags |= MSG_DONTWAIT;
 	err = sock_recvmsg(sock, &msg, flags);
@@ -2375,6 +2367,7 @@ int __copy_msghdr_from_user(struct msghdr *kmsg,
 		return -EFAULT;
 
 	kmsg->msg_control_is_user = true;
+	kmsg->msg_get_inq = 0;
 	kmsg->msg_control_user = msg.msg_control;
 	kmsg->msg_controllen = msg.msg_controllen;
 	kmsg->msg_flags = msg.msg_flags;
