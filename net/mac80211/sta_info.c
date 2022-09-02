@@ -472,6 +472,7 @@ static void sta_info_add_link(struct sta_info *sta,
 	link_info->sta = sta;
 	link_info->link_id = link_id;
 	link_info->pub = link_sta;
+	link_sta->link_id = link_id;
 	rcu_assign_pointer(sta->link[link_id], link_info);
 	rcu_assign_pointer(sta->sta.link[link_id], link_sta);
 }
@@ -494,7 +495,7 @@ __sta_info_alloc(struct ieee80211_sub_if_data *sdata,
 	sta->sdata = sdata;
 
 	if (sta_info_alloc_link(local, &sta->deflink, gfp))
-		return NULL;
+		goto free;
 
 	if (link_id >= 0) {
 		sta_info_add_link(sta, link_id, &sta->deflink,
@@ -2316,9 +2317,9 @@ static inline u64 sta_get_tidstats_msdu(struct ieee80211_sta_rx_stats *rxstats,
 	u64 value;
 
 	do {
-		start = u64_stats_fetch_begin(&rxstats->syncp);
+		start = u64_stats_fetch_begin_irq(&rxstats->syncp);
 		value = rxstats->msdu[tid];
-	} while (u64_stats_fetch_retry(&rxstats->syncp, start));
+	} while (u64_stats_fetch_retry_irq(&rxstats->syncp, start));
 
 	return value;
 }
@@ -2384,9 +2385,9 @@ static inline u64 sta_get_stats_bytes(struct ieee80211_sta_rx_stats *rxstats)
 	u64 value;
 
 	do {
-		start = u64_stats_fetch_begin(&rxstats->syncp);
+		start = u64_stats_fetch_begin_irq(&rxstats->syncp);
 		value = rxstats->bytes;
-	} while (u64_stats_fetch_retry(&rxstats->syncp, start));
+	} while (u64_stats_fetch_retry_irq(&rxstats->syncp, start));
 
 	return value;
 }
@@ -2777,10 +2778,8 @@ int ieee80211_sta_activate_link(struct sta_info *sta, unsigned int link_id)
 
 	sta->sta.valid_links = new_links;
 
-	if (!test_sta_flag(sta, WLAN_STA_INSERTED)) {
-		ret = 0;
+	if (!test_sta_flag(sta, WLAN_STA_INSERTED))
 		goto hash;
-	}
 
 	ret = drv_change_sta_links(sdata->local, sdata, &sta->sta,
 				   old_links, new_links);
@@ -2799,6 +2798,7 @@ hash:
 void ieee80211_sta_remove_link(struct sta_info *sta, unsigned int link_id)
 {
 	struct ieee80211_sub_if_data *sdata = sta->sdata;
+	u16 old_links = sta->sta.valid_links;
 
 	lockdep_assert_held(&sdata->local->sta_mtx);
 
@@ -2806,8 +2806,7 @@ void ieee80211_sta_remove_link(struct sta_info *sta, unsigned int link_id)
 
 	if (test_sta_flag(sta, WLAN_STA_INSERTED))
 		drv_change_sta_links(sdata->local, sdata, &sta->sta,
-				     sta->sta.valid_links,
-				     sta->sta.valid_links & ~BIT(link_id));
+				     old_links, sta->sta.valid_links);
 
 	sta_remove_link(sta, link_id, true);
 }
