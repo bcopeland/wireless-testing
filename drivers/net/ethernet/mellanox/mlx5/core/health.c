@@ -601,7 +601,7 @@ static void mlx5_fw_reporter_err_work(struct work_struct *work)
 	fw_reporter_ctx.miss_counter = health->miss_counter;
 	if (fw_reporter_ctx.err_synd) {
 		devlink_health_report(health->fw_reporter,
-				      "FW syndrom reported", &fw_reporter_ctx);
+				      "FW syndrome reported", &fw_reporter_ctx);
 		return;
 	}
 	if (fw_reporter_ctx.miss_counter)
@@ -873,13 +873,6 @@ void mlx5_drain_health_wq(struct mlx5_core_dev *dev)
 	cancel_delayed_work_sync(&health->update_fw_log_ts_work);
 	cancel_work_sync(&health->report_work);
 	cancel_work_sync(&health->fatal_report_work);
-}
-
-void mlx5_health_flush(struct mlx5_core_dev *dev)
-{
-	struct mlx5_core_health *health = &dev->priv.health;
-
-	flush_workqueue(health->wq);
 }
 
 void mlx5_health_cleanup(struct mlx5_core_dev *dev)
