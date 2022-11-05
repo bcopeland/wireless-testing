@@ -529,7 +529,6 @@ static void dsa_port_devlink_teardown(struct dsa_port *dp)
 
 static int dsa_port_setup(struct dsa_port *dp)
 {
-	struct devlink_port *dlp = &dp->devlink_port;
 	bool dsa_port_link_registered = false;
 	struct dsa_switch *ds = dp->ds;
 	bool dsa_port_enabled = false;
@@ -585,10 +584,6 @@ static int dsa_port_setup(struct dsa_port *dp)
 	case DSA_PORT_TYPE_USER:
 		of_get_mac_address(dp->dn, dp->mac);
 		err = dsa_slave_create(dp);
-		if (err)
-			break;
-
-		devlink_port_type_eth_set(dlp, dp->slave);
 		break;
 	}
 
@@ -608,12 +603,8 @@ static int dsa_port_setup(struct dsa_port *dp)
 
 static void dsa_port_teardown(struct dsa_port *dp)
 {
-	struct devlink_port *dlp = &dp->devlink_port;
-
 	if (!dp->setup)
 		return;
-
-	devlink_port_type_clear(dlp);
 
 	switch (dp->type) {
 	case DSA_PORT_TYPE_UNUSED:
@@ -1409,9 +1400,9 @@ static enum dsa_tag_protocol dsa_get_tag_protocol(struct dsa_port *dp,
 static int dsa_port_parse_cpu(struct dsa_port *dp, struct net_device *master,
 			      const char *user_protocol)
 {
+	const struct dsa_device_ops *tag_ops = NULL;
 	struct dsa_switch *ds = dp->ds;
 	struct dsa_switch_tree *dst = ds->dst;
-	const struct dsa_device_ops *tag_ops;
 	enum dsa_tag_protocol default_proto;
 
 	/* Find out which protocol the switch would prefer. */
@@ -1434,9 +1425,16 @@ static int dsa_port_parse_cpu(struct dsa_port *dp, struct net_device *master,
 		}
 
 		tag_ops = dsa_find_tagger_by_name(user_protocol);
-	} else {
-		tag_ops = dsa_tag_driver_get(default_proto);
+		if (IS_ERR(tag_ops)) {
+			dev_warn(ds->dev,
+				 "Failed to find a tagging driver for protocol %s, using default\n",
+				 user_protocol);
+			tag_ops = NULL;
+		}
 	}
+
+	if (!tag_ops)
+		tag_ops = dsa_tag_driver_get(default_proto);
 
 	if (IS_ERR(tag_ops)) {
 		if (PTR_ERR(tag_ops) == -ENOPROTOOPT)

@@ -1459,7 +1459,8 @@ static struct sk_buff *tun_napi_alloc_frags(struct tun_file *tfile,
 	int err;
 	int i;
 
-	if (it->nr_segs > MAX_SKB_FRAGS + 1)
+	if (it->nr_segs > MAX_SKB_FRAGS + 1 ||
+	    len > (ETH_MAX_MTU - NET_SKB_PAD - NET_IP_ALIGN))
 		return ERR_PTR(-EMSGSIZE);
 
 	local_bh_disable();
@@ -3514,7 +3515,7 @@ static void tun_default_link_ksettings(struct net_device *dev,
 {
 	ethtool_link_ksettings_zero_link_mode(cmd, supported);
 	ethtool_link_ksettings_zero_link_mode(cmd, advertising);
-	cmd->base.speed		= SPEED_10;
+	cmd->base.speed		= SPEED_10000;
 	cmd->base.duplex	= DUPLEX_FULL;
 	cmd->base.port		= PORT_TP;
 	cmd->base.phy_address	= 0;

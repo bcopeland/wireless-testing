@@ -1534,10 +1534,10 @@ static int nft_dump_stats(struct sk_buff *skb, struct nft_stats __percpu *stats)
 	for_each_possible_cpu(cpu) {
 		cpu_stats = per_cpu_ptr(stats, cpu);
 		do {
-			seq = u64_stats_fetch_begin_irq(&cpu_stats->syncp);
+			seq = u64_stats_fetch_begin(&cpu_stats->syncp);
 			pkts = cpu_stats->pkts;
 			bytes = cpu_stats->bytes;
-		} while (u64_stats_fetch_retry_irq(&cpu_stats->syncp, seq));
+		} while (u64_stats_fetch_retry(&cpu_stats->syncp, seq));
 		total.pkts += pkts;
 		total.bytes += bytes;
 	}
@@ -2854,6 +2854,43 @@ static int nf_tables_expr_parse(const struct nft_ctx *ctx,
 
 err1:
 	module_put(type->owner);
+	return err;
+}
+
+int nft_expr_inner_parse(const struct nft_ctx *ctx, const struct nlattr *nla,
+			 struct nft_expr_info *info)
+{
+	struct nlattr *tb[NFTA_EXPR_MAX + 1];
+	const struct nft_expr_type *type;
+	int err;
+
+	err = nla_parse_nested_deprecated(tb, NFTA_EXPR_MAX, nla,
+					  nft_expr_policy, NULL);
+	if (err < 0)
+		return err;
+
+	if (!tb[NFTA_EXPR_DATA])
+		return -EINVAL;
+
+	type = __nft_expr_type_get(ctx->family, tb[NFTA_EXPR_NAME]);
+	if (IS_ERR(type))
+		return PTR_ERR(type);
+
+	if (!type->inner_ops)
+		return -EOPNOTSUPP;
+
+	err = nla_parse_nested_deprecated(info->tb, type->maxattr,
+					  tb[NFTA_EXPR_DATA],
+					  type->policy, NULL);
+	if (err < 0)
+		goto err_nla_parse;
+
+	info->attr = nla;
+	info->ops = type->inner_ops;
+
+	return 0;
+
+err_nla_parse:
 	return err;
 }
 
@@ -8465,9 +8502,6 @@ static void nft_commit_release(struct nft_trans *trans)
 		nf_tables_chain_destroy(&trans->ctx);
 		break;
 	case NFT_MSG_DELRULE:
-		if (trans->ctx.chain->flags & NFT_CHAIN_HW_OFFLOAD)
-			nft_flow_rule_destroy(nft_trans_flow_rule(trans));
-
 		nf_tables_rule_destroy(&trans->ctx, nft_trans_rule(trans));
 		break;
 	case NFT_MSG_DELSET:
@@ -8973,6 +9007,9 @@ static int nf_tables_commit(struct net *net, struct sk_buff *skb)
 			nft_rule_expr_deactivate(&trans->ctx,
 						 nft_trans_rule(trans),
 						 NFT_TRANS_COMMIT);
+
+			if (trans->ctx.chain->flags & NFT_CHAIN_HW_OFFLOAD)
+				nft_flow_rule_destroy(nft_trans_flow_rule(trans));
 			break;
 		case NFT_MSG_NEWSET:
 			nft_clear(net, nft_trans_set(trans));
@@ -10030,6 +10067,8 @@ static int nft_rcv_nl_event(struct notifier_block *this, unsigned long event,
 	nft_net = nft_pernet(net);
 	deleted = 0;
 	mutex_lock(&nft_net->commit_mutex);
+	if (!list_empty(&nf_tables_destroy_list))
+		rcu_barrier();
 again:
 	list_for_each_entry(table, &nft_net->tables, list) {
 		if (nft_table_has_owner(table) &&
