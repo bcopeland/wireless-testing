@@ -659,6 +659,9 @@ static int sparx5_start(struct sparx5 *sparx5)
 	snprintf(queue_name, sizeof(queue_name), "%s-mact",
 		 dev_name(sparx5->dev));
 	sparx5->mact_queue = create_singlethread_workqueue(queue_name);
+	if (!sparx5->mact_queue)
+		return -ENOMEM;
+
 	INIT_DELAYED_WORK(&sparx5->mact_work, sparx5_mact_pull_work);
 	queue_delayed_work(sparx5->mact_queue, &sparx5->mact_work,
 			   SPX5_MACT_PULL_DELAY);
@@ -672,6 +675,14 @@ static int sparx5_start(struct sparx5 *sparx5)
 
 	sparx5_board_init(sparx5);
 	err = sparx5_register_notifier_blocks(sparx5);
+	if (err)
+		return err;
+
+	err = sparx5_vcap_init(sparx5);
+	if (err) {
+		sparx5_unregister_notifier_blocks(sparx5);
+		return err;
+	}
 
 	/* Start Frame DMA with fallback to register based INJ/XTR */
 	err = -ENXIO;
@@ -906,6 +917,7 @@ static int mchp_sparx5_remove(struct platform_device *pdev)
 	sparx5_ptp_deinit(sparx5);
 	sparx5_fdma_stop(sparx5);
 	sparx5_cleanup_ports(sparx5);
+	sparx5_vcap_destroy(sparx5);
 	/* Unregister netdevs */
 	sparx5_unregister_notifier_blocks(sparx5);
 
