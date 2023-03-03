@@ -222,6 +222,9 @@ static int rtw_pwr_seq_parser(struct rtw_dev *rtwdev,
 	case RTW_HCI_TYPE_USB:
 		intf_mask = RTW_PWR_INTF_USB_MSK;
 		break;
+	case RTW_HCI_TYPE_SDIO:
+		intf_mask = RTW_PWR_INTF_SDIO_MSK;
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -1040,6 +1043,9 @@ static int txdma_queue_mapping(struct rtw_dev *rtwdev)
 		else
 			return -EINVAL;
 		break;
+	case RTW_HCI_TYPE_SDIO:
+		rqpn = &chip->rqpn_table[0];
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -1201,6 +1207,9 @@ static int priority_queue_cfg(struct rtw_dev *rtwdev)
 			pg_tbl = &chip->page_table[4];
 		else
 			return -EINVAL;
+		break;
+	case RTW_HCI_TYPE_SDIO:
+		pg_tbl = &chip->page_table[0];
 		break;
 	default:
 		return -EINVAL;
