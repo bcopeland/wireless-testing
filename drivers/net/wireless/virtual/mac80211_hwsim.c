@@ -1534,37 +1534,38 @@ static void mac80211_hwsim_add_vendor_rtap(struct sk_buff *skb)
 	 * the values accordingly.
 	 */
 #ifdef HWSIM_RADIOTAP_OUI
-	struct ieee80211_vendor_radiotap *rtap;
+	struct ieee80211_radiotap_vendor_tlv *rtap;
+	static const char vendor_data[8] = "ABCDEFGH";
+
+	// Make sure no padding is needed
+	BUILD_BUG_ON(sizeof(vendor_data) % 4);
+	/* this is last radiotap info before the mac header, so
+	 * skb_reset_mac_header for mac8022 to know the end of
+	 * the radiotap TLV/beginning of the 802.11 header
+	 */
+	skb_reset_mac_header(skb);
 
 	/*
 	 * Note that this code requires the headroom in the SKB
 	 * that was allocated earlier.
 	 */
-	rtap = skb_push(skb, sizeof(*rtap) + 8 + 4);
-	rtap->oui[0] = HWSIM_RADIOTAP_OUI[0];
-	rtap->oui[1] = HWSIM_RADIOTAP_OUI[1];
-	rtap->oui[2] = HWSIM_RADIOTAP_OUI[2];
-	rtap->subns = 127;
+	rtap = skb_push(skb, sizeof(*rtap) + sizeof(vendor_data));
 
-	/*
-	 * Radiotap vendor namespaces can (and should) also be
-	 * split into fields by using the standard radiotap
-	 * presence bitmap mechanism. Use just BIT(0) here for
-	 * the presence bitmap.
-	 */
-	rtap->present = BIT(0);
-	/* We have 8 bytes of (dummy) data */
-	rtap->len = 8;
-	/* For testing, also require it to be aligned */
-	rtap->align = 8;
-	/* And also test that padding works, 4 bytes */
-	rtap->pad = 4;
-	/* push the data */
-	memcpy(rtap->data, "ABCDEFGH", 8);
-	/* make sure to clear padding, mac80211 doesn't */
-	memset(rtap->data + 8, 0, 4);
+	rtap->len = cpu_to_le16(sizeof(*rtap) -
+				sizeof(struct ieee80211_radiotap_tlv) +
+				sizeof(vendor_data));
+	rtap->type = cpu_to_le16(IEEE80211_RADIOTAP_VENDOR_NAMESPACE);
 
-	IEEE80211_SKB_RXCB(skb)->flag |= RX_FLAG_RADIOTAP_VENDOR_DATA;
+	rtap->content.oui[0] = HWSIM_RADIOTAP_OUI[0];
+	rtap->content.oui[1] = HWSIM_RADIOTAP_OUI[1];
+	rtap->content.oui[2] = HWSIM_RADIOTAP_OUI[2];
+	rtap->content.oui_subtype = 127;
+	/* clear reserved field */
+	rtap->content.reserved = 0;
+	rtap->content.vendor_type = 0;
+	memcpy(rtap->content.data, vendor_data, sizeof(vendor_data));
+
+	IEEE80211_SKB_RXCB(skb)->flag |= RX_FLAG_RADIOTAP_TLV_AT_END;
 #endif
 }
 
@@ -2054,38 +2055,18 @@ static void mac80211_hwsim_tx_frame(struct ieee80211_hw *hw,
 	dev_kfree_skb(skb);
 }
 
-static void mac80211_hwsim_beacon_tx(void *arg, u8 *mac,
-				     struct ieee80211_vif *vif)
+static void __mac80211_hwsim_beacon_tx(struct ieee80211_bss_conf *link_conf,
+				       struct mac80211_hwsim_data *data,
+				       struct ieee80211_hw *hw,
+				       struct ieee80211_vif *vif,
+				       struct sk_buff *skb)
 {
-	struct mac80211_hwsim_link_data *link_data = arg;
-	u32 link_id = link_data->link_id;
-	struct ieee80211_bss_conf *link_conf;
-	struct mac80211_hwsim_data *data =
-		container_of(link_data, struct mac80211_hwsim_data,
-			     link_data[link_id]);
-	struct ieee80211_hw *hw = data->hw;
 	struct ieee80211_tx_info *info;
 	struct ieee80211_rate *txrate;
 	struct ieee80211_mgmt *mgmt;
-	struct sk_buff *skb;
 	/* TODO: get MCS */
 	int bitrate = 100;
 
-	hwsim_check_magic(vif);
-
-	link_conf = rcu_dereference(vif->link_conf[link_id]);
-	if (!link_conf)
-		return;
-
-	if (vif->type != NL80211_IFTYPE_AP &&
-	    vif->type != NL80211_IFTYPE_MESH_POINT &&
-	    vif->type != NL80211_IFTYPE_ADHOC &&
-	    vif->type != NL80211_IFTYPE_OCB)
-		return;
-
-	skb = ieee80211_beacon_get(hw, vif, link_data->link_id);
-	if (skb == NULL)
-		return;
 	info = IEEE80211_SKB_CB(skb);
 	if (ieee80211_hw_check(hw, SUPPORTS_RC_TABLE))
 		ieee80211_get_tx_rates(vif, NULL, skb,
@@ -2115,6 +2096,56 @@ static void mac80211_hwsim_beacon_tx(void *arg, u8 *mac,
 
 	mac80211_hwsim_tx_frame(hw, skb,
 			rcu_dereference(link_conf->chanctx_conf)->def.chan);
+}
+
+static void mac80211_hwsim_beacon_tx(void *arg, u8 *mac,
+				     struct ieee80211_vif *vif)
+{
+	struct mac80211_hwsim_link_data *link_data = arg;
+	u32 link_id = link_data->link_id;
+	struct ieee80211_bss_conf *link_conf;
+	struct mac80211_hwsim_data *data =
+		container_of(link_data, struct mac80211_hwsim_data,
+			     link_data[link_id]);
+	struct ieee80211_hw *hw = data->hw;
+	struct sk_buff *skb;
+
+	hwsim_check_magic(vif);
+
+	link_conf = rcu_dereference(vif->link_conf[link_id]);
+	if (!link_conf)
+		return;
+
+	if (vif->type != NL80211_IFTYPE_AP &&
+	    vif->type != NL80211_IFTYPE_MESH_POINT &&
+	    vif->type != NL80211_IFTYPE_ADHOC &&
+	    vif->type != NL80211_IFTYPE_OCB)
+		return;
+
+	if (vif->mbssid_tx_vif && vif->mbssid_tx_vif != vif)
+		return;
+
+	if (vif->bss_conf.ema_ap) {
+		struct ieee80211_ema_beacons *ema;
+		u8 i = 0;
+
+		ema = ieee80211_beacon_get_template_ema_list(hw, vif, link_id);
+		if (!ema || !ema->cnt)
+			return;
+
+		for (i = 0; i < ema->cnt; i++) {
+			__mac80211_hwsim_beacon_tx(link_conf, data, hw, vif,
+						   ema->bcn[i].skb);
+			ema->bcn[i].skb = NULL; /* Already freed */
+		}
+		ieee80211_beacon_free_ema_list(ema);
+	} else {
+		skb = ieee80211_beacon_get(hw, vif, link_id);
+		if (!skb)
+			return;
+
+		__mac80211_hwsim_beacon_tx(link_conf, data, hw, vif, skb);
+	}
 
 	while ((skb = ieee80211_get_buffered_bc(hw, vif)) != NULL) {
 		mac80211_hwsim_tx_frame(hw, skb,
@@ -4393,6 +4424,9 @@ static int mac80211_hwsim_new_radio(struct genl_info *info,
 		hw->wiphy->n_cipher_suites = param->n_ciphers;
 	}
 
+	hw->wiphy->mbssid_max_interfaces = 8;
+	hw->wiphy->ema_max_profile_periodicity = 3;
+
 	data->rx_rssi = DEFAULT_RX_RSSI;
 
 	INIT_DELAYED_WORK(&data->roc_start, hw_roc_start);
@@ -4445,6 +4479,9 @@ static int mac80211_hwsim_new_radio(struct genl_info *info,
 			      NL80211_EXT_FEATURE_MULTICAST_REGISTRATIONS);
 	wiphy_ext_feature_set(hw->wiphy,
 			      NL80211_EXT_FEATURE_BEACON_RATE_LEGACY);
+
+	wiphy_ext_feature_set(hw->wiphy,
+			      NL80211_EXT_FEATURE_SCAN_MIN_PREQ_CONTENT);
 
 	hw->wiphy->interface_modes = param->iftypes;
 
