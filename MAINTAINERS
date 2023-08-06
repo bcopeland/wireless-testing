@@ -3685,6 +3685,7 @@ F:	include/linux/filter.h
 F:	include/linux/tnum.h
 F:	kernel/bpf/core.c
 F:	kernel/bpf/dispatcher.c
+F:	kernel/bpf/mprog.c
 F:	kernel/bpf/syscall.c
 F:	kernel/bpf/tnum.c
 F:	kernel/bpf/trampoline.c
@@ -3695,7 +3696,7 @@ R:	David Vernet <void@manifault.com>
 L:	bpf@vger.kernel.org
 L:	bpf@ietf.org
 S:	Maintained
-F:	Documentation/bpf/instruction-set.rst
+F:	Documentation/bpf/standardization/
 
 BPF [GENERAL] (Safe Dynamic Programs and Tools)
 M:	Alexei Starovoitov <ast@kernel.org>
@@ -3703,7 +3704,7 @@ M:	Daniel Borkmann <daniel@iogearbox.net>
 M:	Andrii Nakryiko <andrii@kernel.org>
 R:	Martin KaFai Lau <martin.lau@linux.dev>
 R:	Song Liu <song@kernel.org>
-R:	Yonghong Song <yhs@fb.com>
+R:	Yonghong Song <yonghong.song@linux.dev>
 R:	John Fastabend <john.fastabend@gmail.com>
 R:	KP Singh <kpsingh@kernel.org>
 R:	Stanislav Fomichev <sdf@google.com>
@@ -3742,7 +3743,7 @@ F:	tools/lib/bpf/
 F:	tools/testing/selftests/bpf/
 
 BPF [ITERATOR]
-M:	Yonghong Song <yhs@fb.com>
+M:	Yonghong Song <yonghong.song@linux.dev>
 L:	bpf@vger.kernel.org
 S:	Maintained
 F:	kernel/bpf/*iter.c
@@ -3778,13 +3779,15 @@ L:	netdev@vger.kernel.org
 S:	Maintained
 F:	kernel/bpf/bpf_struct*
 
-BPF [NETWORKING] (tc BPF, sock_addr)
+BPF [NETWORKING] (tcx & tc BPF, sock_addr)
 M:	Martin KaFai Lau <martin.lau@linux.dev>
 M:	Daniel Borkmann <daniel@iogearbox.net>
 R:	John Fastabend <john.fastabend@gmail.com>
 L:	bpf@vger.kernel.org
 L:	netdev@vger.kernel.org
 S:	Maintained
+F:	include/net/tcx.h
+F:	kernel/bpf/tcx.c
 F:	net/core/filter.c
 F:	net/sched/act_bpf.c
 F:	net/sched/cls_bpf.c
@@ -3835,6 +3838,15 @@ L:	bpf@vger.kernel.org
 S:	Maintained
 F:	kernel/bpf/stackmap.c
 F:	kernel/trace/bpf_trace.c
+
+BROADCOM ASP 2.0 ETHERNET DRIVER
+M:	Justin Chen <justin.chen@broadcom.com>
+M:	Florian Fainelli <florian.fainelli@broadcom.com>
+L:	bcm-kernel-feedback-list@broadcom.com
+L:	netdev@vger.kernel.org
+S:	Supported
+F:	Documentation/devicetree/bindings/net/brcm,asp-v2.0.yaml
+F:	drivers/net/ethernet/broadcom/asp2/
 
 BROADCOM B44 10/100 ETHERNET DRIVER
 M:	Michael Chan <michael.chan@broadcom.com>
@@ -7593,6 +7605,13 @@ L:	linux-mmc@vger.kernel.org
 S:	Supported
 F:	drivers/mmc/host/cqhci*
 
+EMS CPC-PCI CAN DRIVER
+M:	Gerhard Uttenthaler <uttenthaler@ems-wuensche.com>
+M:	support@ems-wuensche.com
+L:	linux-can@vger.kernel.org
+S:	Maintained
+F:	drivers/net/can/sja1000/ems_pci.c
+
 EMULEX 10Gbps iSCSI - OneConnect DRIVER
 M:	Ketan Mukadam <ketan.mukadam@broadcom.com>
 L:	linux-scsi@vger.kernel.org
@@ -7732,6 +7751,7 @@ F:	include/linux/mii.h
 F:	include/linux/of_net.h
 F:	include/linux/phy.h
 F:	include/linux/phy_fixed.h
+F:	include/linux/phylib_stubs.h
 F:	include/linux/platform_data/mdio-bcm-unimac.h
 F:	include/linux/platform_data/mdio-gpio.h
 F:	include/trace/events/mdio.h
@@ -20401,7 +20421,6 @@ F:	drivers/pwm/pwm-stm32*
 F:	include/linux/*/stm32-*tim*
 
 STMMAC ETHERNET DRIVER
-M:	Giuseppe Cavallaro <peppe.cavallaro@st.com>
 M:	Alexandre Torgue <alexandre.torgue@foss.st.com>
 M:	Jose Abreu <joabreu@synopsys.com>
 L:	netdev@vger.kernel.org
@@ -21678,11 +21697,14 @@ S:	Orphan
 F:	drivers/net/ethernet/dec/tulip/
 
 TUN/TAP driver
-M:	Maxim Krasnyansky <maxk@qti.qualcomm.com>
+M:	Willem de Bruijn <willemdebruijn.kernel@gmail.com>
+M:	Jason Wang <jasowang@redhat.com>
 S:	Maintained
 W:	http://vtun.sourceforge.net/tun
 F:	Documentation/networking/tuntap.rst
 F:	arch/um/os-Linux/drivers/
+F:	drivers/net/tap.c
+F:	drivers/net/tun.c
 
 TURBOCHANNEL SUBSYSTEM
 M:	"Maciej W. Rozycki" <macro@orcam.me.uk>
