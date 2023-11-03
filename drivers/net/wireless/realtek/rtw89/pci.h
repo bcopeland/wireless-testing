@@ -496,6 +496,105 @@
 #define B_AX_CH11_BUSY			BIT(1)
 #define B_AX_CH10_BUSY			BIT(0)
 
+#define R_BE_HAXI_DMA_STOP1 0xB010
+#define B_BE_STOP_WPDMA BIT(31)
+#define B_BE_STOP_CH14 BIT(14)
+#define B_BE_STOP_CH13 BIT(13)
+#define B_BE_STOP_CH12 BIT(12)
+#define B_BE_STOP_CH11 BIT(11)
+#define B_BE_STOP_CH10 BIT(10)
+#define B_BE_STOP_CH9 BIT(9)
+#define B_BE_STOP_CH8 BIT(8)
+#define B_BE_STOP_CH7 BIT(7)
+#define B_BE_STOP_CH6 BIT(6)
+#define B_BE_STOP_CH5 BIT(5)
+#define B_BE_STOP_CH4 BIT(4)
+#define B_BE_STOP_CH3 BIT(3)
+#define B_BE_STOP_CH2 BIT(2)
+#define B_BE_STOP_CH1 BIT(1)
+#define B_BE_STOP_CH0 BIT(0)
+#define B_BE_TX_STOP1_MASK (B_BE_STOP_CH0 | B_BE_STOP_CH1 | \
+			    B_BE_STOP_CH2 | B_BE_STOP_CH3 | \
+			    B_BE_STOP_CH4 | B_BE_STOP_CH5 | \
+			    B_BE_STOP_CH6 | B_BE_STOP_CH7 | \
+			    B_BE_STOP_CH8 | B_BE_STOP_CH9 | \
+			    B_BE_STOP_CH10 | B_BE_STOP_CH11 | \
+			    B_BE_STOP_CH12)
+
+#define R_BE_CH0_TXBD_NUM_V1 0xB030
+#define R_BE_CH1_TXBD_NUM_V1 0xB032
+#define R_BE_CH2_TXBD_NUM_V1 0xB034
+#define R_BE_CH3_TXBD_NUM_V1 0xB036
+#define R_BE_CH4_TXBD_NUM_V1 0xB038
+#define R_BE_CH5_TXBD_NUM_V1 0xB03A
+#define R_BE_CH6_TXBD_NUM_V1 0xB03C
+#define R_BE_CH7_TXBD_NUM_V1 0xB03E
+#define R_BE_CH8_TXBD_NUM_V1 0xB040
+#define R_BE_CH9_TXBD_NUM_V1 0xB042
+#define R_BE_CH10_TXBD_NUM_V1 0xB044
+#define R_BE_CH11_TXBD_NUM_V1 0xB046
+#define R_BE_CH12_TXBD_NUM_V1 0xB048
+#define R_BE_CH13_TXBD_NUM_V1 0xB04C
+#define R_BE_CH14_TXBD_NUM_V1 0xB04E
+
+#define R_BE_RXQ0_RXBD_NUM_V1 0xB050
+#define R_BE_RPQ0_RXBD_NUM_V1 0xB052
+
+#define R_BE_CH0_TXBD_IDX_V1 0xB100
+#define R_BE_CH1_TXBD_IDX_V1 0xB104
+#define R_BE_CH2_TXBD_IDX_V1 0xB108
+#define R_BE_CH3_TXBD_IDX_V1 0xB10C
+#define R_BE_CH4_TXBD_IDX_V1 0xB110
+#define R_BE_CH5_TXBD_IDX_V1 0xB114
+#define R_BE_CH6_TXBD_IDX_V1 0xB118
+#define R_BE_CH7_TXBD_IDX_V1 0xB11C
+#define R_BE_CH8_TXBD_IDX_V1 0xB120
+#define R_BE_CH9_TXBD_IDX_V1 0xB124
+#define R_BE_CH10_TXBD_IDX_V1 0xB128
+#define R_BE_CH11_TXBD_IDX_V1 0xB12C
+#define R_BE_CH12_TXBD_IDX_V1 0xB130
+#define R_BE_CH13_TXBD_IDX_V1 0xB134
+#define R_BE_CH14_TXBD_IDX_V1 0xB138
+
+#define R_BE_RXQ0_RXBD_IDX_V1 0xB160
+#define R_BE_RPQ0_RXBD_IDX_V1 0xB164
+
+#define R_BE_CH0_TXBD_DESA_L_V1 0xB200
+#define R_BE_CH0_TXBD_DESA_H_V1 0xB204
+#define R_BE_CH1_TXBD_DESA_L_V1 0xB208
+#define R_BE_CH1_TXBD_DESA_H_V1 0xB20C
+#define R_BE_CH2_TXBD_DESA_L_V1 0xB210
+#define R_BE_CH2_TXBD_DESA_H_V1 0xB214
+#define R_BE_CH3_TXBD_DESA_L_V1 0xB218
+#define R_BE_CH3_TXBD_DESA_H_V1 0xB21C
+#define R_BE_CH4_TXBD_DESA_L_V1 0xB220
+#define R_BE_CH4_TXBD_DESA_H_V1 0xB224
+#define R_BE_CH5_TXBD_DESA_L_V1 0xB228
+#define R_BE_CH5_TXBD_DESA_H_V1 0xB22C
+#define R_BE_CH6_TXBD_DESA_L_V1 0xB230
+#define R_BE_CH6_TXBD_DESA_H_V1 0xB234
+#define R_BE_CH7_TXBD_DESA_L_V1 0xB238
+#define R_BE_CH7_TXBD_DESA_H_V1 0xB23C
+#define R_BE_CH8_TXBD_DESA_L_V1 0xB240
+#define R_BE_CH8_TXBD_DESA_H_V1 0xB244
+#define R_BE_CH9_TXBD_DESA_L_V1 0xB248
+#define R_BE_CH9_TXBD_DESA_H_V1 0xB24C
+#define R_BE_CH10_TXBD_DESA_L_V1 0xB250
+#define R_BE_CH10_TXBD_DESA_H_V1 0xB254
+#define R_BE_CH11_TXBD_DESA_L_V1 0xB258
+#define R_BE_CH11_TXBD_DESA_H_V1 0xB25C
+#define R_BE_CH12_TXBD_DESA_L_V1 0xB260
+#define R_BE_CH12_TXBD_DESA_H_V1 0xB264
+#define R_BE_CH13_TXBD_DESA_L_V1 0xB268
+#define R_BE_CH13_TXBD_DESA_H_V1 0xB26C
+#define R_BE_CH14_TXBD_DESA_L_V1 0xB270
+#define R_BE_CH14_TXBD_DESA_H_V1 0xB274
+
+#define R_BE_RXQ0_RXBD_DESA_L_V1 0xB300
+#define R_BE_RXQ0_RXBD_DESA_H_V1 0xB304
+#define R_BE_RPQ0_RXBD_DESA_L_V1 0xB308
+#define R_BE_RPQ0_RXBD_DESA_H_V1 0xB30C
+
 /* Configure */
 #define R_AX_PCIE_INIT_CFG2		0x1004
 #define B_AX_WD_ITVL_IDLE		GENMASK(27, 24)
@@ -553,6 +652,72 @@
 
 #define R_AX_PCIE_HRPWM_V1		0x30C0
 #define R_AX_PCIE_CRPWM			0x30C4
+
+#define R_BE_PCIE_HRPWM 0x30C0
+#define R_BE_PCIE_CRPWM 0x30C4
+
+#define R_BE_TXBD_RWPTR_CLR1 0xB014
+#define B_BE_CLR_CH14_IDX BIT(14)
+#define B_BE_CLR_CH13_IDX BIT(13)
+#define B_BE_CLR_CH12_IDX BIT(12)
+#define B_BE_CLR_CH11_IDX BIT(11)
+#define B_BE_CLR_CH10_IDX BIT(10)
+#define B_BE_CLR_CH9_IDX BIT(9)
+#define B_BE_CLR_CH8_IDX BIT(8)
+#define B_BE_CLR_CH7_IDX BIT(7)
+#define B_BE_CLR_CH6_IDX BIT(6)
+#define B_BE_CLR_CH5_IDX BIT(5)
+#define B_BE_CLR_CH4_IDX BIT(4)
+#define B_BE_CLR_CH3_IDX BIT(3)
+#define B_BE_CLR_CH2_IDX BIT(2)
+#define B_BE_CLR_CH1_IDX BIT(1)
+#define B_BE_CLR_CH0_IDX BIT(0)
+
+#define R_BE_RXBD_RWPTR_CLR1_V1 0xB018
+#define B_BE_CLR_ROQ1_IDX_V1 BIT(5)
+#define B_BE_CLR_RPQ1_IDX_V1 BIT(4)
+#define B_BE_CLR_RXQ1_IDX_V1 BIT(3)
+#define B_BE_CLR_ROQ0_IDX BIT(2)
+#define B_BE_CLR_RPQ0_IDX BIT(1)
+#define B_BE_CLR_RXQ0_IDX BIT(0)
+
+#define R_BE_HAXI_DMA_BUSY1 0xB01C
+#define B_BE_HAXI_MST_BUSY BIT(31)
+#define B_BE_HAXI_RX_IDLE BIT(25)
+#define B_BE_HAXI_TX_IDLE BIT(24)
+#define B_BE_ROQ1_BUSY_V1 BIT(21)
+#define B_BE_RPQ1_BUSY_V1 BIT(20)
+#define B_BE_RXQ1_BUSY_V1 BIT(19)
+#define B_BE_ROQ0_BUSY_V1 BIT(18)
+#define B_BE_RPQ0_BUSY_V1 BIT(17)
+#define B_BE_RXQ0_BUSY_V1 BIT(16)
+#define B_BE_WPDMA_BUSY BIT(15)
+#define B_BE_CH14_BUSY BIT(14)
+#define B_BE_CH13_BUSY BIT(13)
+#define B_BE_CH12_BUSY BIT(12)
+#define B_BE_CH11_BUSY BIT(11)
+#define B_BE_CH10_BUSY BIT(10)
+#define B_BE_CH9_BUSY BIT(9)
+#define B_BE_CH8_BUSY BIT(8)
+#define B_BE_CH7_BUSY BIT(7)
+#define B_BE_CH6_BUSY BIT(6)
+#define B_BE_CH5_BUSY BIT(5)
+#define B_BE_CH4_BUSY BIT(4)
+#define B_BE_CH3_BUSY BIT(3)
+#define B_BE_CH2_BUSY BIT(2)
+#define B_BE_CH1_BUSY BIT(1)
+#define B_BE_CH0_BUSY BIT(0)
+#define DMA_BUSY1_CHECK_BE (B_BE_CH0_BUSY | B_BE_CH1_BUSY | B_BE_CH2_BUSY | \
+			    B_BE_CH3_BUSY | B_BE_CH4_BUSY | B_BE_CH5_BUSY | \
+			    B_BE_CH6_BUSY | B_BE_CH7_BUSY | B_BE_CH8_BUSY | \
+			    B_BE_CH9_BUSY | B_BE_CH10_BUSY | B_BE_CH11_BUSY | \
+			    B_BE_CH12_BUSY | B_BE_CH13_BUSY | B_BE_CH14_BUSY)
+
+#define R_BE_HAXI_EXP_CTRL_V1 0xB020
+#define B_BE_R_NO_SEC_ACCESS BIT(31)
+#define B_BE_FORCE_EN_DMA_RX_GCLK BIT(5)
+#define B_BE_FORCE_EN_DMA_TX_GCLK BIT(4)
+#define B_BE_MAX_TAG_NUM_MASK GENMASK(3, 0)
 
 #define RTW89_PCI_TXBD_NUM_MAX		256
 #define RTW89_PCI_RXBD_NUM_MAX		256
@@ -772,6 +937,7 @@ struct rtw89_pci_info {
 	enum mac_ax_pcie_func_ctrl autok_en;
 	enum mac_ax_pcie_func_ctrl io_rcy_en;
 	enum mac_ax_io_rcy_tmr io_rcy_tmr;
+	bool rx_ring_eq_is_full;
 
 	u32 init_cfg_reg;
 	u32 txhci_en_bit;
@@ -781,6 +947,7 @@ struct rtw89_pci_info {
 	u32 max_tag_num_mask;
 	u32 rxbd_rwptr_clr_reg;
 	u32 txbd_rwptr_clr2_reg;
+	struct rtw89_reg_def dma_io_stop;
 	struct rtw89_reg_def dma_stop1;
 	struct rtw89_reg_def dma_stop2;
 	struct rtw89_reg_def dma_busy1;
@@ -1059,6 +1226,7 @@ static inline bool rtw89_pci_ltr_is_err_reg_val(u32 val)
 extern const struct dev_pm_ops rtw89_pm_ops;
 extern const struct rtw89_pci_ch_dma_addr_set rtw89_pci_ch_dma_addr_set;
 extern const struct rtw89_pci_ch_dma_addr_set rtw89_pci_ch_dma_addr_set_v1;
+extern const struct rtw89_pci_ch_dma_addr_set rtw89_pci_ch_dma_addr_set_be;
 extern const struct rtw89_pci_bd_ram rtw89_bd_ram_table_dual[RTW89_TXCH_NUM];
 extern const struct rtw89_pci_bd_ram rtw89_bd_ram_table_single[RTW89_TXCH_NUM];
 
