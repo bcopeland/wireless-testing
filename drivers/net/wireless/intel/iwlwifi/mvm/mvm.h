@@ -121,7 +121,7 @@ struct iwl_mvm_time_event_data {
 	 * if the te is in the time event list or not (when id == TE_MAX)
 	 */
 	u32 id;
-	u8 link_id;
+	s8 link_id;
 };
 
  /* Power management */
@@ -847,6 +847,9 @@ struct iwl_mvm {
 	struct list_head async_handlers_list;
 	spinlock_t async_handlers_lock;
 	struct work_struct async_handlers_wk;
+
+	/* For async rx handlers that require the wiphy lock */
+	struct wiphy_work async_handlers_wiphy_wk;
 
 	struct work_struct roc_done_wk;
 
