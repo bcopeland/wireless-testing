@@ -1942,6 +1942,9 @@ static int sta_apply_parameters(struct ieee80211_local *local,
 			clear_sta_flag(sta, WLAN_STA_TDLS_PEER);
 	}
 
+	if (mask & BIT(NL80211_STA_FLAG_SPP_AMSDU))
+		sta->sta.spp_amsdu = set & BIT(NL80211_STA_FLAG_SPP_AMSDU);
+
 	/* mark TDLS channel switch support, if the AP allows it */
 	if (test_sta_flag(sta, WLAN_STA_TDLS_PEER) &&
 	    !sdata->deflink.u.mgd.tdls_chan_switch_prohibited &&
@@ -4966,6 +4969,17 @@ static int ieee80211_set_hw_timestamp(struct wiphy *wiphy,
 	return local->ops->set_hw_timestamp(&local->hw, &sdata->vif, hwts);
 }
 
+static int
+ieee80211_set_ttlm(struct wiphy *wiphy, struct net_device *dev,
+		   struct cfg80211_ttlm_params *params)
+{
+	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
+
+	lockdep_assert_wiphy(sdata->local->hw.wiphy);
+
+	return ieee80211_req_neg_ttlm(sdata, params);
+}
+
 const struct cfg80211_ops mac80211_config_ops = {
 	.add_virtual_intf = ieee80211_add_iface,
 	.del_virtual_intf = ieee80211_del_iface,
@@ -5078,4 +5092,5 @@ const struct cfg80211_ops mac80211_config_ops = {
 	.mod_link_station = ieee80211_mod_link_station,
 	.del_link_station = ieee80211_del_link_station,
 	.set_hw_timestamp = ieee80211_set_hw_timestamp,
+	.set_ttlm = ieee80211_set_ttlm,
 };

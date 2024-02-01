@@ -1195,14 +1195,12 @@ int iwl_mvm_mac_start(struct ieee80211_hw *hw)
 {
 	struct iwl_mvm *mvm = IWL_MAC80211_GET_MVM(hw);
 	int ret;
-	int retry, max_retry = 0;
 
 	mutex_lock(&mvm->mutex);
 
 	/* we are starting the mac not in error flow, and restart is enabled */
 	if (!test_bit(IWL_MVM_STATUS_HW_RESTART_REQUESTED, &mvm->status) &&
 	    iwlwifi_mod_params.fw_restart) {
-		max_retry = IWL_MAX_INIT_RETRY;
 		/*
 		 * This will prevent mac80211 recovery flows to trigger during
 		 * init failures
@@ -1210,13 +1208,7 @@ int iwl_mvm_mac_start(struct ieee80211_hw *hw)
 		set_bit(IWL_MVM_STATUS_STARTING, &mvm->status);
 	}
 
-	for (retry = 0; retry <= max_retry; retry++) {
-		ret = __iwl_mvm_mac_start(mvm);
-		if (!ret || mvm->pldr_sync)
-			break;
-
-		IWL_ERR(mvm, "mac start retry %d\n", retry);
-	}
+	ret = __iwl_mvm_mac_start(mvm);
 	clear_bit(IWL_MVM_STATUS_STARTING, &mvm->status);
 
 	mutex_unlock(&mvm->mutex);
@@ -1350,6 +1342,7 @@ void iwl_mvm_mac_stop(struct ieee80211_hw *hw)
 	 * discover that its list is now empty.
 	 */
 	cancel_work_sync(&mvm->async_handlers_wk);
+	wiphy_work_cancel(hw->wiphy, &mvm->async_handlers_wiphy_wk);
 }
 
 struct iwl_mvm_phy_ctxt *iwl_mvm_get_free_phy_ctxt(struct iwl_mvm *mvm)
