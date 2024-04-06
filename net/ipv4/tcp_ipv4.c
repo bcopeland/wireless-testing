@@ -866,11 +866,10 @@ static void tcp_v4_send_reset(const struct sock *sk, struct sk_buff *skb)
 	 * routing might fail in this case. No choice here, if we choose to force
 	 * input interface, we will misroute in case of asymmetric route.
 	 */
-	if (sk) {
+	if (sk)
 		arg.bound_dev_if = sk->sk_bound_dev_if;
-		if (sk_fullsock(sk))
-			trace_tcp_send_reset(sk, skb);
-	}
+
+	trace_tcp_send_reset(sk, skb);
 
 	BUILD_BUG_ON(offsetof(struct sock, sk_bound_dev_if) !=
 		     offsetof(struct inet_timewait_sock, tw_bound_dev_if));
@@ -3501,7 +3500,7 @@ static void __net_exit tcp_sk_exit_batch(struct list_head *net_exit_list)
 {
 	struct net *net;
 
-	tcp_twsk_purge(net_exit_list, AF_INET);
+	tcp_twsk_purge(net_exit_list);
 
 	list_for_each_entry(net, net_exit_list, exit_list) {
 		inet_pernet_hashinfo_free(net->ipv4.tcp_death_row.hashinfo);
