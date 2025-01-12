@@ -515,12 +515,13 @@ dsa_user_port_fdb_do_dump(const unsigned char *addr, u16 vid,
 			  bool is_static, void *data)
 {
 	struct dsa_user_dump_ctx *dump = data;
+	struct ndo_fdb_dump_context *ctx = (void *)dump->cb->ctx;
 	u32 portid = NETLINK_CB(dump->cb->skb).portid;
 	u32 seq = dump->cb->nlh->nlmsg_seq;
 	struct nlmsghdr *nlh;
 	struct ndmsg *ndm;
 
-	if (dump->idx < dump->cb->args[2])
+	if (dump->idx < ctx->fdb_idx)
 		goto skip;
 
 	nlh = nlmsg_put(dump->skb, portid, seq, RTM_NEWNEIGH,
@@ -1228,8 +1229,12 @@ static int dsa_user_set_eee(struct net_device *dev, struct ethtool_keee *e)
 	struct dsa_switch *ds = dp->ds;
 	int ret;
 
+	/* Check whether the switch supports EEE */
+	if (!ds->ops->support_eee || !ds->ops->support_eee(ds, dp->index))
+		return -EOPNOTSUPP;
+
 	/* Port's PHY and MAC both need to be EEE capable */
-	if (!dev->phydev || !dp->pl)
+	if (!dev->phydev)
 		return -ENODEV;
 
 	if (!ds->ops->set_mac_eee)
@@ -1246,18 +1251,14 @@ static int dsa_user_get_eee(struct net_device *dev, struct ethtool_keee *e)
 {
 	struct dsa_port *dp = dsa_user_to_port(dev);
 	struct dsa_switch *ds = dp->ds;
-	int ret;
 
-	/* Port's PHY and MAC both need to be EEE capable */
-	if (!dev->phydev || !dp->pl)
-		return -ENODEV;
-
-	if (!ds->ops->get_mac_eee)
+	/* Check whether the switch supports EEE */
+	if (!ds->ops->support_eee || !ds->ops->support_eee(ds, dp->index))
 		return -EOPNOTSUPP;
 
-	ret = ds->ops->get_mac_eee(ds, dp->index, e);
-	if (ret)
-		return ret;
+	/* Port's PHY and MAC both need to be EEE capable */
+	if (!dev->phydev)
+		return -ENODEV;
 
 	return phylink_ethtool_get_eee(dp->pl, e);
 }

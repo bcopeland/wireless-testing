@@ -22,6 +22,8 @@ struct sd_flow_limit {
 
 extern int netdev_flow_limit_table_len;
 
+struct napi_struct *netdev_napi_by_id(struct net *net, unsigned int napi_id);
+
 #ifdef CONFIG_PROC_FS
 int __init dev_proc_init(void);
 #else
@@ -269,7 +271,6 @@ void xdp_do_check_flushed(struct napi_struct *napi);
 static inline void xdp_do_check_flushed(struct napi_struct *napi) { }
 #endif
 
-struct napi_struct *napi_by_id(unsigned int napi_id);
 void kick_defer_list_purge(struct softnet_data *sd, unsigned int cpu);
 
 #define XMIT_RECURSION_LIMIT	8
@@ -310,5 +311,8 @@ static inline void dev_xmit_recursion_dec(void)
 int dev_set_hwtstamp_phylib(struct net_device *dev,
 			    struct kernel_hwtstamp_config *cfg,
 			    struct netlink_ext_ack *extack);
+int dev_get_hwtstamp_phylib(struct net_device *dev,
+			    struct kernel_hwtstamp_config *cfg);
+int net_hwtstamp_validate(const struct kernel_hwtstamp_config *cfg);
 
 #endif
