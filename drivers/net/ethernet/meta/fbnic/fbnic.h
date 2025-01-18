@@ -16,6 +16,10 @@
 #include "fbnic_mac.h"
 #include "fbnic_rpc.h"
 
+struct fbnic_napi_vector;
+
+#define FBNIC_MAX_NAPI_VECTORS		128u
+
 struct fbnic_dev {
 	struct device *dev;
 	struct net_device *netdev;
@@ -27,6 +31,11 @@ struct fbnic_dev {
 	unsigned int fw_msix_vector;
 	unsigned int pcs_msix_vector;
 	unsigned short num_irqs;
+
+	struct {
+		u8 users;
+		char name[IFNAMSIZ + 9];
+	} napi_irq[FBNIC_MAX_NAPI_VECTORS];
 
 	struct delayed_work service_task;
 
@@ -143,6 +152,12 @@ void fbnic_fw_disable_mbx(struct fbnic_dev *fbd);
 int fbnic_pcs_irq_enable(struct fbnic_dev *fbd);
 void fbnic_pcs_irq_disable(struct fbnic_dev *fbd);
 
+void fbnic_napi_name_irqs(struct fbnic_dev *fbd);
+int fbnic_napi_request_irq(struct fbnic_dev *fbd,
+			   struct fbnic_napi_vector *nv);
+void fbnic_napi_free_irq(struct fbnic_dev *fbd,
+			 struct fbnic_napi_vector *nv);
+void fbnic_synchronize_irq(struct fbnic_dev *fbd, int nr);
 int fbnic_request_irq(struct fbnic_dev *dev, int nr, irq_handler_t handler,
 		      unsigned long flags, const char *name, void *data);
 void fbnic_free_irq(struct fbnic_dev *dev, int nr, void *data);
